@@ -2,53 +2,46 @@
 import pymssql,cx_Oracle
 import os
 
-def get_project(host):
-    with pymssql.connect(host=host, user="readonly", password="capol!@#456",database="CAPOL_Project") as conn:
+def get_staff():
+    with pymssql.connect(host='10.1.1.117', user="auditor", password="hygj!@#456",database="cip") as conn:
         cur=conn.cursor()
-        cur.execute(u"""SELECT PrjNo,PrjName,CreateTime,Project.FolderName+'_'+PrjPhase.FolderName AS FolderName ,PrjPhase.PrjPhaseName
-            FROM CAPOL_Project.dbo.Project left join CAPOL_Project.dbo.PrjPhase on PrjPhase.PrjId = Project.Id 
-            where Project.RecordState='A' and PrjPhase.RecordState='A'""")
+        cur.execute(u"""SELECT LoginName,JobNo,Username,CompanyName,DeptName,Specialty FROM [dbo].[v_auditor_staff]""")
         res=cur.fetchall()
     return res
 
-def drop_and_create(oracle):
+def drop_and_create_staff(oracle):
     with cx_Oracle.connect(oracle) as conn:
         cur=conn.cursor()
-        cur.execute(u"DROP TABLE CAPOL_PRJACSSERVER")
-        cur.execute(u"CREATE TABLE CAPOL_PRJACSSERVER(PRJ_NO varchar2(16),PRJ_NAME varchar2(1000),PRJ_PHASE_NAME varchar2(16),CREATE_TIME DATE,S_NAME varchar2(10),SAP_PRJNO varchar2(16),FOLDER varchar2(1000))")
-        cur.execute(u"INSERT INTO CAPOL_PRJACSSERVER(PRJ_NO,PRJ_NAME,CREATE_TIME,S_NAME,SAP_PRJNO) VALUES('0000','最新同步时间',TRUNC(SYSDATE),'0000','0000')")
+        try:
+            cur.execute(u"DROP TABLE CAPOL_CIP_STAFF")
+        except cx_Oracle.DatabaseError:
+            pass
+        cur.execute(u"CREATE TABLE CAPOL_CIP_STAFF(LoginName varchar2(50),JobNo varchar2(16),Username varchar2(50),CompanyName varchar2(50),DeptName varchar2(50),Specialty varchar2(50))")
+        cur.execute(u"INSERT INTO CAPOL_CIP_STAFF(LoginName,JobNo,Username) VALUES('同步时间','0000',to_char(sysdate, 'yyyy-mm-dd hh24:mi:ss'))")
         conn.commit()
 
-def check_and_insert(oracle,Projects,S_NAME):
+def check_and_insert_staff(oracle,staff):
     with cx_Oracle.connect(oracle) as conn:
         cur=conn.cursor()
-        for (PrjNo,PrjName,CreateTime,FolderName,PrjPhaseName) in Projects:
-            FolderName="D:\\AcsModule\\WorkFolder\\Project\\"+FolderName
-            cur.execute(u"SELECT PRJ_NAME,PRJ_PHASE_NAME,CREATE_TIME,S_NAME,FOLDER FROM CAPOL_PRJACSSERVER WHERE PRJ_NO=:1 AND PRJ_PHASE_NAME=:2",[PrjNo,PrjPhaseName])
+        for (LoginName,JobNo,Username,CompanyName,DeptName,Specialty) in staff:
+            cur.execute(u"SELECT LoginName,JobNo,Username,CompanyName,DeptName FROM CAPOL_CIP_STAFF WHERE JobNo=:1",[JobNo])
             res=cur.fetchone()
             if res:
-                (PRJ_NAME,PRJ_PHASE_NAME,CREATE_TIME,S,FOLDER)=res
-                if (PrjName,PrjPhaseName,CreateTime,S_NAME,FolderName)!=res and CreateTime >= CREATE_TIME:
-                    cur.execute(u"UPDATE CAPOL_PRJACSSERVER SET PRJ_NAME=:1,PRJ_PHASE_NAME=:2,CREATE_TIME=:3,S_NAME=:4,FOLDER=:5 where PRJ_NO=:6",[PrjName,PrjPhaseName,CreateTime,S_NAME,FolderName,PrjNo])
+                if (LoginName,JobNo,Username,CompanyName,DeptName)!=res:
+                    cur.execute(u"UPDATE CAPOL_CIP_STAFF SET LoginName=:1,Username=:2,CompanyName=:3,DeptName=:4 WHERE JobNo=:5",[LoginName,Username,CompanyName,DeptName,JobNo])
             else:
-                cur.execute(u"INSERT INTO CAPOL_PRJACSSERVER(PRJ_NO,PRJ_NAME,PRJ_PHASE_NAME,CREATE_TIME,S_NAME,SAP_PRJNO,FOLDER) VALUES(:1,:2,:3,:4,:5,:6,:7)",[PrjNo,PrjName,PrjPhaseName,CreateTime,S_NAME,PrjNo,FolderName])
-        cur.execute(u"UPDATE CAPOL_PRJACSSERVER SET PRJ_NAME='最新同步时间',CREATE_TIME=TRUNC(SYSDATE),S_NAME='0000' where PRJ_NO='0000'")
+                cur.execute(u" INSERT INTO CAPOL_CIP_STAFF(LoginName,JobNo,Username,CompanyName,DeptName,Specialty) VALUES(:1,:2,:3,:4,:5,:6)",[LoginName,JobNo,Username,CompanyName,DeptName,Specialty])
+        cur.execute(u"UPDATE CAPOL_CIP_STAFF SET Username=to_char(sysdate, 'yyyy-mm-dd hh24:mi:ss') where JobNo='0000'")
         conn.commit()
 
 
 def run():
-    lst=[
-    ('深圳','10.1.246.1'),
-    ('广州','10.2.1.114'),
-    ('长沙','10.3.1.3'),
-    ('上海','10.6.1.240')
-    ]
-    #oracle='steven/qfc23834358@10.1.42.66:1521/xe'
+    #oracle='steven/qfc23834358@10.1.42.24:1521/xe'
     oracle='ccd/hygj1234@10.1.1.213:1521/orcl'
     #drop_and_create(oracle)
-    for (S_NAME,host) in lst:
-        Projects=get_project(host)
-        check_and_insert(oracle,Projects,S_NAME)
+    staff=get_staff()
+    #drop_and_create_staff(oracle)
+    check_and_insert_staff(oracle,staff)
 
 
 

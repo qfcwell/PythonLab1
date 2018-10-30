@@ -1,6 +1,7 @@
 ﻿# -*- coding: utf-8 -*-
 import pymssql,cx_Oracle
 import os
+import STAFF_SYNC
 
 def get_project(host):
     with pymssql.connect(host=host, user="readonly", password="capol!@#456",database="CAPOL_Project") as conn:
@@ -54,3 +55,4 @@ def run():
 
 if __name__=="__main__":
     run()
+    STAFF_SYNC.run()

@@ -433,7 +433,7 @@ def clean_temp_folder():
     lst=[]
     for f in dirs:
         nd=os.path.join(d,f)
-        if os.isdir(nd):
+        if os.path.isdir(nd):
             ctime=os.stat(nd).st_ctime
             if time.time()-ctime>5000000.0:
                 lst.append(nd)

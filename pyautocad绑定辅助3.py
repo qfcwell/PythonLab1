@@ -3,9 +3,19 @@ import os,stat,time
 from pyautocad import Autocad, APoint
 import pywinauto
 import pymysql
-import redis,pickle
+#import redis,pickle
+from threading import Timer
+import sysinfo
 
 def autorun(mode=0):
+    os.system('D:\\restartACS.bat')
+    while Check_CAD()==0:
+        os.system('D:\\restartCAD.bat')
+        print('start ACAD.exe')
+    while Check_ACS()==0:
+        os.system('D:\\restartACS.bat')
+        print('start ACSTOOLS.exe')
+    StartACS()
     while 1:
         dlg=dialog()
         dlg.find()
@@ -25,6 +35,23 @@ def autorun(mode=0):
             log_result(res.name,res.path,res.result)
         time.sleep(1)
         print(time.strftime('%Y-%m-%d %H:%M:%S',time.localtime()))
+        dlg.handle_stop()
+        if dlg.find_crash():
+            os.system('D:\\restartCAD.bat')
+            os.system('D:\\restartACS.bat')
+            while Check_CAD()==0:
+                os.system('D:\\restartCAD.bat')
+                print('start ACAD.exe')
+            while Check_ACS()==0:
+                os.system('D:\\restartACS.bat')
+                print('start ACSTOOLS.exe')
+            StartACS()
+        if sysinfo.getSysInfo()['memFree']<600:
+            bind=binding()
+            bind.get_doc()
+            bind.close_other()
+        clean_temp_folder()
+
         
 def run_bind():
     bind=binding()
@@ -58,6 +85,25 @@ def print_func(func):
         return func(*args,**kwargs)
     return inner
 
+
+def StartACS():
+    app=pywinauto.application.Application()
+    app.connect(path="D:\\AcsModule\\Client\\AcsTools.exe")
+    dlg=app.window(title_re='工具管理器')
+    dlg['绑定失败跳过'].click()
+    dlg['优先处理绑定失败的文件'].click()
+    dlg['开始绑定'].click()
+
+def Check_ACS():
+    app=pywinauto.application.Application()
+    app.connect(path="D:\\AcsModule\\Client\\AcsTools.exe")
+    dlg=app.window(title_re='工具管理器')
+    try:
+        dlg['开始绑定'].print_control_identifiers()
+        return 1
+    except pywinauto.findbestmatch.MatchError:
+        return 0
+        
 class dialog():
     def __init__(self):
         self.app=pywinauto.application.Application()
@@ -74,17 +120,29 @@ class dialog():
 
     def find_crash(self):
         self.app.connect(path="D:\\AcsModule\\Client\\AcsTools.exe")
+        self.dlg =self.app.window(title_re="提示")
+        crash=self.dlg.window(title_re="应用程序发生了灾难性故障.*")
         try:
-            self.dlg =self.app[r"提示"]
-            self.dlg[r"存在无法绑定的外参，手动绑定完成后点[确定],放弃绑定点[取消]！"].print_control_identifiers()
-        except pywinauto.findbestmatch.MatchError:
-            self.dlg=0
-        return self.dlg
+            crash.print_control_identifiers()
+            return 1
+        except (pywinauto.findbestmatch.MatchError,pywinauto.findwindows.ElementNotFoundError):
+            return 0
+
+    def handle_stop(self):
+        self.app.connect(path="D:\\AcsModule\\Client\\AcsTools.exe")
+        self.dlg =self.app.window(title_re="异常")
+        crash=self.dlg.window(title_re="函数[PlotFrameSet]发生了错误.*")
+        try:
+            crash.print_control_identifiers()
+            self.dlg['取消'].click()
+        except (pywinauto.findbestmatch.MatchError,pywinauto.findwindows.ElementNotFoundError):
+            pass
+
 
 
 class binding():
     def __init__(self):
-        self.acad =Autocad(create_if_not_exists=True)
+        self.acad =Autocad(create_if_not_exists=False)
         self.acad.Application.LoadARX("D:\\CapolCAD\\lsp\\iWCapolPurgeIn.arx")
         self.result='failed_0'
 
@@ -287,6 +345,44 @@ def open_file(path):
     new_doc.doc=new_doc.acad.Application.documents.open(path)
     return new_doc
 '''
+class TimeOutError(Exception):
+    def __init__(self, value):
+        self.value = value
+    def __str__(self):
+        return repr(self.value)
+
+def timeout(interval):
+    def wraps(func):
+        def time_out():
+            raise TimeOutError('TimeOut: '+str(interval))
+        def deco(*args, **kwargs):
+            timer = Timer(interval, time_out)
+            timer.start()
+            res = func(*args, **kwargs)
+            timer.cancel()
+            return res
+        return deco
+    return wraps
+
+@timeout(60)
+def try_connect_CAD():
+    while 1:
+        try:
+            cad=binding()
+            cad.get_doc()
+            cad.load()
+            return 1
+        except:
+            time.sleep(1)
+
+def Check_CAD():
+    try:
+        try_connect_CAD()
+        return 1
+    except TimeOutError:
+        print('连接CAD超时')
+        return 0
+
 @print_func
 def open_file(path):
     new_doc=binding()
@@ -318,11 +414,38 @@ def open_file(path):
     print("open file time out!")
     return 0
 
+def get_size(filedir):
+    tree = os.walk(filedir, topdown=True)
+    dirsize = 0
+    for i in tree:
+        nodeName = i[0]
+        nodeDirs = i[1]
+        nodeFiles = i[2]
+        if('Zeal' in nodeName):
+            continue
+        for file in nodeFiles:
+            dirsize = dirsize + os.path.getsize(nodeName+'\\'+file)
+    return dirsize
+
+def clean_temp_folder():
+    d=r'C:\Users\virtual\AppData\Local\Temp\AcsTempFile\提资接收区'
+    dirs=os.listdir(d)
+    lst=[]
+    for f in dirs:
+        nd=os.path.join(d,f)
+        if os.isdir(nd):
+            ctime=os.stat(nd).st_ctime
+            if time.time()-ctime>5000000.0:
+                lst.append(nd)
+    for nd in lst:
+        os.system('rmdir /s/q "%s"' % nd)
+            
+
 @print_func
 def log_result(file_name,file_path,result):
     print("#".join(['file name',file_name,'file path',file_path,'result',result]))
-    conn=pymysql.connect(host="10.1.42.24",user="steven",passwd="steven!@#456",db="project_test")
-    conn=pymysql.connect(host="www.minitech.site",user="steven",passwd="STEVEN0.minitech",db="project_test")
+    #conn=pymysql.connect(host="10.1.42.24",user="steven",passwd="steven!@#456",db="project_test")
+    conn=pymysql.connect(host="www.minitech.site",user="steven",passwd="steven!@#456",db="project_test")
     cur=conn.cursor()
     cur.execute(u"INSERT INTO BindHelperRecord(file_name,file_path,result) VALUES(%s,%s,%s)",[file_name,file_path,result])
     conn.commit()
@@ -331,12 +454,6 @@ def log_result(file_name,file_path,result):
 
 if __name__=="__main__":
     autorun()
-    #test()
-    #run_bind()
-    #docs=Autocad(create_if_not_exists=True).app.documents
-    #for i in range(docs.count):
-        #print(docs[i].Name)
-    #bind=binding()
-    #bind.close_other()
+    #StartACS()
 
 

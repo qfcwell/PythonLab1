@@ -8,7 +8,7 @@ import sysinfo
 method=1#0为处理绑定失败的文件，1为普通
 restartACS='restartACS.bat'
 restartCAD='restartCAD.bat'
-cpath='D:\\CapolCAD\\lsp'#sys.path[0]
+cpath='D:\\ACADbindhelper'#sys.path[0]
 arx_path=os.path.join(cpath,'iWCapolPurgeIn.arx')
 lsp_path=os.path.join(cpath,'bindfix-origin.lsp')
 

@@ -108,7 +108,7 @@ def StartCAD():
         #acad =Autocad(create_if_not_exists=False)
         #print(arx_path)
         #acad.Application.LoadARX(arx_path)
-        while t<60:
+        while t<120:
             try:
                 acad =Autocad(create_if_not_exists=False)
                 print(arx_path)
@@ -120,9 +120,12 @@ def StartCAD():
 
 def CheckMEM():
     if sysinfo.getSysInfo()['memFree']<600:
-        bind=binding()
-        bind.get_doc()
-        bind.close_other()
+        try:
+            bind=binding()
+            bind.get_doc()
+            bind.close_other()
+        except:
+            pass
 
 class dialog():
     def __init__(self):
@@ -134,7 +137,7 @@ class dialog():
         try:
             self.dlg =self.app[r"提示"]
             self.dlg[r"存在无法绑定的外参，手动绑定完成后点[确定],放弃绑定点[取消]！"].print_control_identifiers()
-        except pywinauto.findbestmatch.MatchError:
+        except (pywinauto.findbestmatch.MatchError):
             self.dlg=0
         return self.dlg
 

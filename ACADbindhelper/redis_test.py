@@ -2,12 +2,12 @@
 import redis,os
 pool = redis.ConnectionPool(host='10.1.42.24', port=6379)
 pool = redis.ConnectionPool(host='39.108.109.58', port=6379)
-conn = redis.Redis(connection_pool=pool)
+conn = redis.StrictRedis(connection_pool=pool)
 
 def main():
     name='acadbindhelper'
     lst=get_all_file(not_in=['acadbindhelper_mode1.exe','iWCapolPurgeIn.arx'])
-    lst=['iWCapolPurgeIn.arx']
+    lst=['acadbindhelper.py']
     upload(conn,name,lst,delete=1)
 
 def get_all_file(path='.\\',not_in=[]):
@@ -19,13 +19,16 @@ def get_all_file(path='.\\',not_in=[]):
     return lst
 
 def upload(conn,name,lst,delete=False):
+    dic={}
     if delete:
         conn.delete(name)
     for file in lst:
         with open(file,'rb') as f:
             res=f.read()
-            conn.hset(name,file,res)
-            print('update:'+file)
+        dic[file]=res
+        #print(dic)
+        conn.set(name,res)
+     #       print('update:'+file)
 
 def download(conn,name):
     keys=conn.hkeys(name)

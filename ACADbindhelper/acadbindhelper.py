@@ -2,7 +2,7 @@
 import os,sys,stat,time
 from pyautocad import *
 import pywinauto
-import pymysql
+import pymysql,pymssql
 from threading import Timer
 import sysinfo
 method=1#0为处理绑定失败的文件，1为普通
@@ -10,12 +10,16 @@ restartACS='restartACS.bat'
 restartCAD='restartCAD.bat'
 cpath='D:\\ACADbindhelper'#sys.path[0]
 arx_path=os.path.join(cpath,'iWCapolPurgeIn.arx')
-lsp_path=os.path.join(cpath,'bindfix-origin.lsp')
+lsp_path='D:\\\\ACADbindhelper\\\\bindfix-origin.lsp'
+
+def main():
+    SetFail()
 
 def autorun(mode=0):
     StartCAD()
     StartACS(method=method)
     while 1:
+        SetFail()
         dlg=dialog()
         dlg.find()
         if dlg.dlg:
@@ -39,7 +43,8 @@ def autorun(mode=0):
             StartCAD()
             StartACS(method)
         CheckMEM()
-        clean_temp_folder()
+        bc=bind_cleaner()
+        bc.clean()
         
 def run_bind():
     bind=binding()
@@ -73,6 +78,74 @@ def print_func(func):
         return func(*args,**kwargs)
     return inner
 
+def SetFail():
+    BR=BindingReset()
+    BR.timeout=14400
+    BR.AddStart()
+    BR.MarkFinish()
+    BR.SetFail()
+    BR.close()
+
+class BindingReset():
+    def __init__(self):
+        self.acs=pymssql.connect(host='10.1.246.1', user="sa", password="sasasa",database="CAPOL_Project")
+        self.mysql=pymysql.connect(host="www.minitech.site",user="steven",passwd="steven!@#456",db="project_test")
+        self.timeout=14400
+
+    def close(self):
+        self.acs.close()
+        self.mysql.close()
+
+    def GetBinding(self):
+        cur=self.acs.cursor()
+        cur.execute(u"SELECT ID FROM ProductFile where RecordState='A' and IsCurrent is null and BindState='Binding'")
+        return set(cur.fetchall())
+
+    def GetNotBinded(self):
+        cur=self.acs.cursor()
+        cur.execute(u"SELECT ID FROM ProductFile where RecordState='A' and IsCurrent is null and BindState<>'Binded'")
+        return set(cur.fetchall())
+
+    def GetCache(self):
+        cur=self.mysql.cursor()
+        cur.execute(u"SELECT f_id FROM BindingRecord where result is null")
+        return set(cur.fetchall())
+
+    def FindFinish(self):
+        return self.GetCache()-self.GetBinding()
+
+    def FindStart(self):
+        return self.GetBinding()-self.GetCache()
+
+    def FindTimeOut(self):
+        cur=self.mysql.cursor()
+        cur.execute(u"SELECT f_id FROM BindingRecord where result is null and now()-start_time > %s",[self.timeout])
+        return set(cur.fetchall())
+
+    def AddStart(self):
+        cur=self.mysql.cursor()
+        for f in self.FindStart():
+            print('AddStart:')
+            print(f)
+            cur.execute(u"INSERT INTO BindingRecord(f_id,start_time) values(%s,now())",f)
+        self.mysql.commit()
+
+    def MarkFinish(self):
+        cur=self.mysql.cursor()
+        for f in self.FindFinish():
+            print('MarkFinish:')
+            print(f)
+            cur.execute(u"UPDATE BindingRecord SET result='FINISH',finish_time=now() WHERE result is null and f_id=%s",f)
+        self.mysql.commit()
+
+    def SetFail(self):
+        cur=self.acs.cursor()
+        for f in self.FindTimeOut():
+            print('SetFail:')
+            print(f)
+            cur.execute(u"UPDATE ProductFile SET BindState='QuickBindError',BindLevel=2 WHERE RecordState='A' and BindState='Binding' AND ID=%s",f)
+        self.acs.commit()
+
 
 def StartACS(method=0):
     while 1:
@@ -103,19 +176,23 @@ def StartCAD():
     while 1:
         print(restartCAD)
         os.system(restartCAD)
-        time.sleep(15)
+        t=30
+        while t>0:
+            time.sleep(1)
+            print("waiting for ACAD: "+str(t))
+            t=t-1
         t=1
         #acad =Autocad(create_if_not_exists=False)
         #print(arx_path)
         #acad.Application.LoadARX(arx_path)
-        while t<120:
+        while t<90:
             try:
                 acad =Autocad(create_if_not_exists=False)
                 print(arx_path)
                 acad.Application.LoadARX(arx_path)
                 return 1
             except:
-                time.sleep(1)
+                time.sleep(2)
                 t+=1
 
 def CheckMEM():
@@ -143,13 +220,16 @@ class dialog():
 
     def find_crash(self):
         self.app.connect(path="D:\\AcsModule\\Client\\AcsTools.exe")
-        self.dlg =self.app.window(title_re="提示")
-        crash=self.dlg.window(title_re="应用程序发生了灾难性故障.*")
-        try:
-            crash.print_control_identifiers()
-            return 1
-        except (pywinauto.findbestmatch.MatchError,pywinauto.findwindows.ElementNotFoundError):
-            return 0
+        exceptions=[("提示","应用程序发生了灾难性故障.*"),("异常","File service error.*"),("错误","调用CAD返回了错误信息.*")]
+        for (title,content) in exceptions:
+            self.dlg =self.app.window(title_re=title)
+            crash=self.dlg.window(title_re=content)
+            try:
+                crash.print_control_identifiers()
+                return 1
+            except (pywinauto.findbestmatch.MatchError,pywinauto.findwindows.ElementNotFoundError):
+                pass
+        return 0
 
     def handle_stop(self):
         self.app.connect(path="D:\\AcsModule\\Client\\AcsTools.exe")
@@ -266,26 +346,7 @@ class binding():
             return lst
         else:
             return False
-    '''
-    def remove_unload_xref(self):
-        for i in range(5):
-            if not self.remove_count0():
-                break 
-        if self.count0_lst():
-            fpath=os.path.join(self.path,self.name)
-            print(fpath)
-            if fpath:
-                self.doc.close(True)
-                new_doc=self.open_file(fpath)
-                if new_doc:
-                    return new_doc
-                else:
-                    return False
-            else:
-                return False
-        else:
-            return self
-        '''
+
 
     @print_func
     def remove_unload_xref(self):
@@ -320,9 +381,6 @@ class binding():
                 fpath=set_write(fpath)
                 if fpath:
                     doc2=open_file(fpath)
-                    #doc2.doc=Autocad().app.documents.open(fpath)
-                    #doc2=binding()
-                    #doc2.get_doc()
                     if doc2:
                         print(doc2)
                         doc2.bind_xref_1()
@@ -337,6 +395,47 @@ class binding():
             self.bind_xref_1()
             if self.has_xref():
                 self.bind_xref_2()
+
+class bind_cleaner():
+    
+    def __init__(self):
+        self.lst=[]
+        self.sorted_list=[]
+        BR=BindingReset()
+        self.not_binded=BR.GetNotBinded()
+        BR.close()
+        self.f_path=r'C:\Users\virtual\AppData\Local\Temp\AcsTempFile\提资接收区'
+        
+    def clean(self,keep=10):
+        self.get_folders()
+        self.sorted_list=self.bubble_sort(self.lst)
+        for (ctime,f,nd) in self.lst[keep:]:
+            if (f,) not in self.not_binded:
+                print(f)
+                os.system('rmdir /s/q "%s"' % nd)
+                
+    def bubble_sort(self,blist):
+        count = len(blist)
+        for i in range(0, count):
+            for j in range(i + 1, count):
+                if blist[i][0] > blist[j][0]:
+                    blist[i], blist[j] = blist[j], blist[i]
+        return blist
+
+    def get_folders(self):
+        f_path=self.f_path
+        if os.path.isdir(f_path):
+            print(f_path)
+        else:
+            return 0
+        dirs=os.listdir(f_path)
+        self.lst=[]
+        for f in dirs:
+            nd=os.path.join(f_path,f)
+            if os.path.isdir(nd):
+                ctime=os.stat(nd).st_ctime
+                self.lst.append((ctime,f,nd))
+        return self.lst
 
 def find_file(path,find_path):
     if path and find_path:
@@ -360,12 +459,7 @@ def set_write(path):
         except:
             print("Can not set_write:"+path)
             return False
-'''
-def open_file(path):
-    new_doc=binding()
-    new_doc.doc=new_doc.acad.Application.documents.open(path)
-    return new_doc
-'''
+
 class TimeOutError(Exception):
     def __init__(self, value):
         self.value = value
@@ -429,20 +523,6 @@ def get_size(filedir):
             dirsize = dirsize + os.path.getsize(nodeName+'\\'+file)
     return dirsize
 
-def clean_temp_folder():
-    d=r'C:\Users\virtual\AppData\Local\Temp\AcsTempFile\提资接收区'
-    dirs=os.listdir(d)
-    lst=[]
-    for f in dirs:
-        nd=os.path.join(d,f)
-        if os.path.isdir(nd):
-            ctime=os.stat(nd).st_ctime
-            if time.time()-ctime>5000000.0:
-                lst.append(nd)
-    for nd in lst:
-        os.system('rmdir /s/q "%s"' % nd)
-            
-
 @print_func
 def log_result(file_name,file_path,result):
     print("#".join(['file name',file_name,'file path',file_path,'result',result]))
@@ -455,7 +535,6 @@ def log_result(file_name,file_path,result):
     conn.close()
 
 if __name__=="__main__":
-    autorun()
-    #StartACS()
+    main()
 
 

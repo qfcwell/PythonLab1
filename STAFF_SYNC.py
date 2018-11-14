@@ -36,14 +36,22 @@ def check_and_insert_staff(oracle,staff):
 
 
 def run():
-    #oracle='steven/qfc23834358@10.1.42.24:1521/xe'
-    oracle='ccd/hygj1234@10.1.1.213:1521/orcl'
+    oracle='steven/qfc23834358@10.1.42.110:1521/xe'
+    #oracle='ccd/hygj1234@10.1.1.213:1521/orcl'
     #drop_and_create(oracle)
     staff=get_staff()
     #drop_and_create_staff(oracle)
     check_and_insert_staff(oracle,staff)
 
+def test():
+    with pymssql.connect(host='10.1.1.117', user="auditor", password="hygj!@#456",database="cip") as conn:
+        cur=conn.cursor()
+        cur.execute(u"""SELECT LoginName,JobNo,Username,CompanyName,DeptName,Specialty FROM [dbo].[v_auditor_staff] where LoginName=%s """,('wuzhuwei'))
+        res=cur.fetchall()
+    print(res)
 
 
 if __name__=="__main__":
-    run()
+    #run()
+    #test()
+    pass

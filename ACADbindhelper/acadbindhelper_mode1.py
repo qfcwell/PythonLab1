@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*- 运行python
-import rediscache
+import acadbindhelper as helper
 
 if __name__=="__main__":
-    name='acadbindhelper'
-    rediscache.download(rediscache.conn,name)
-    import acadbindhelper as helper
     helper.method=1
-    helper.autorun()
+    while 1:
+        try:
+            helper.autorun()
+        except:
+            pass
 

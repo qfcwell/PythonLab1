@@ -3,7 +3,6 @@ import os,sys,stat,time
 from pyautocad import *
 import pywinauto
 import pymysql,pymssql
-from threading import Timer
 import sysinfo
 method=1#0为处理绑定失败的文件，1为普通
 restartACS='restartACS.bat'
@@ -11,43 +10,67 @@ restartCAD='restartCAD.bat'
 cpath='D:\\ACADbindhelper'#sys.path[0]
 arx_path=os.path.join(cpath,'iWCapolPurgeIn.arx')
 lsp_path='D:\\\\ACADbindhelper\\\\bindfix-origin.lsp'
+apps={'CAD':'C:\\Program Files\\Autodesk\\AutoCAD 2012 - Simplified Chinese\\acad.exe','ACS':'D:\\AcsModule\\Client\\AcsTools.exe'}
+exceptions=[
+    ('',"AutoCAD Application","联机检查解决方案并关闭该程序",'关闭程序'),
+    (apps['ACS'],"提示","存在无法绑定的外参，手动绑定完成后.*","bind"),
+    (apps['ACS'],"提示","应用程序发生了灾难性故障.*","restart"),
+    (apps['ACS'],"异常","File service error.*","restart"),
+    (apps['ACS'],"错误","调用CAD返回了错误信息.*","restart"),
+    (apps['ACS'],"警告","未找到已打开的AutoCAD程序.*","restart"),
+    (apps['ACS'],"异常","函数[PlotFrameSet]发生了错误.*",'取消'),
+    (apps['ACS'],"提示","文件.*在ScanXref方法中出错",'确定'),
+    (apps['CAD'],"图形另存为","取消",'取消'),
+    (apps['CAD'],"加载/卸载自定义设置","关闭",'关闭'),
+    (apps['CAD'],"AutoCAD 错误报告","软件问题导致.*",'restart'),
+    (apps['CAD'],"注释比例.*","此图形包含大量的注释比例.*",'是'),
+    ]
 
 def main():
-    SetFail()
+    (dlg,operation)=Find_Exceptions(exceptions)
+    if dlg:
+        dlg.print_control_identifiers()
+    print(operation)
+
+def print_func(func):#装饰器，打印func名
+    def inner(*args,**kwargs):
+        print(func.__name__+':')
+        print(args,kwargs)
+        return func(*args,**kwargs)
+    return inner
 
 def autorun(mode=0):
     StartCAD()
     StartACS(method=method)
     while 1:
-        SetFail()
-        dlg=dialog()
-        dlg.find()
-        if dlg.dlg:
-            res=run_bind()
-            if res.result!='failed_0':
-                dlg.dlg["确定Button"].click()
-            else:
-                log_result(res.name,res.path,res.result)
-                print("try again:")
-                res=run_bind()#再试一下
-                if res.result!='failed_0':
-                    dlg.dlg["确定Button"].click()
-                else:
-                    dlg.dlg["取消Button"].click()
-                    print("取消Button")
-            log_result(res.name,res.path,res.result)
         time.sleep(1)
         print(time.strftime('%Y-%m-%d %H:%M:%S',time.localtime()))
-        dlg.handle_stop()
-        if dlg.find_crash():
-            StartCAD()
-            StartACS(method)
+        (dlg,operation)=Find_Exceptions(exceptions)
+        if operation:
+            if operation=='bind':
+                res=RunBind()
+                if res.result!='failed_0':
+                    dlg["确定"].click()
+                else:
+                    log_result(res.name,res.path,res.result)
+                    print("try again:")
+                    res=RunBind()#再试一下
+                    if res.result!='failed_0':
+                        dlg["确定"].click()
+                    else:
+                        dlg["取消"].click()
+                        print("取消")
+                log_result(res.name,res.path,res.result)
+            elif operation=='restart':
+                StartCAD()
+                StartACS(method)
+            else:
+                dlg[operation].click()
         CheckMEM()
-        bc=bind_cleaner()
-        bc.clean()
-        
-def run_bind():
-    bind=binding()
+        clean=BindCleaner().clean()
+      
+def RunBind():
+    bind=Binding()
     bind.get_doc()
     print(bind.name)
     bind.close_other()
@@ -70,82 +93,6 @@ def run_bind():
     else:
         bind.result='success_3'
         return bind
-
-def print_func(func):
-    def inner(*args,**kwargs):
-        print(func.__name__+':')
-        print(args,kwargs)
-        return func(*args,**kwargs)
-    return inner
-
-def SetFail():
-    BR=BindingReset()
-    BR.timeout=14400
-    BR.AddStart()
-    BR.MarkFinish()
-    BR.SetFail()
-    BR.close()
-
-class BindingReset():
-    def __init__(self):
-        self.acs=pymssql.connect(host='10.1.246.1', user="sa", password="sasasa",database="CAPOL_Project")
-        self.mysql=pymysql.connect(host="www.minitech.site",user="steven",passwd="steven!@#456",db="project_test")
-        self.timeout=14400
-
-    def close(self):
-        self.acs.close()
-        self.mysql.close()
-
-    def GetBinding(self):
-        cur=self.acs.cursor()
-        cur.execute(u"SELECT ID FROM ProductFile where RecordState='A' and IsCurrent is null and BindState='Binding'")
-        return set(cur.fetchall())
-
-    def GetNotBinded(self):
-        cur=self.acs.cursor()
-        cur.execute(u"SELECT ID FROM ProductFile where RecordState='A' and IsCurrent is null and BindState<>'Binded'")
-        return set(cur.fetchall())
-
-    def GetCache(self):
-        cur=self.mysql.cursor()
-        cur.execute(u"SELECT f_id FROM BindingRecord where result is null")
-        return set(cur.fetchall())
-
-    def FindFinish(self):
-        return self.GetCache()-self.GetBinding()
-
-    def FindStart(self):
-        return self.GetBinding()-self.GetCache()
-
-    def FindTimeOut(self):
-        cur=self.mysql.cursor()
-        cur.execute(u"SELECT f_id FROM BindingRecord where result is null and now()-start_time > %s",[self.timeout])
-        return set(cur.fetchall())
-
-    def AddStart(self):
-        cur=self.mysql.cursor()
-        for f in self.FindStart():
-            print('AddStart:')
-            print(f)
-            cur.execute(u"INSERT INTO BindingRecord(f_id,start_time) values(%s,now())",f)
-        self.mysql.commit()
-
-    def MarkFinish(self):
-        cur=self.mysql.cursor()
-        for f in self.FindFinish():
-            print('MarkFinish:')
-            print(f)
-            cur.execute(u"UPDATE BindingRecord SET result='FINISH',finish_time=now() WHERE result is null and f_id=%s",f)
-        self.mysql.commit()
-
-    def SetFail(self):
-        cur=self.acs.cursor()
-        for f in self.FindTimeOut():
-            print('SetFail:')
-            print(f)
-            cur.execute(u"UPDATE ProductFile SET BindState='QuickBindError',BindLevel=2 WHERE RecordState='A' and BindState='Binding' AND ID=%s",f)
-        self.acs.commit()
-
 
 def StartACS(method=0):
     while 1:
@@ -182,9 +129,6 @@ def StartCAD():
             print("waiting for ACAD: "+str(t))
             t=t-1
         t=1
-        #acad =Autocad(create_if_not_exists=False)
-        #print(arx_path)
-        #acad.Application.LoadARX(arx_path)
         while t<90:
             try:
                 acad =Autocad(create_if_not_exists=False)
@@ -198,12 +142,34 @@ def StartCAD():
 def CheckMEM():
     if sysinfo.getSysInfo()['memFree']<600:
         try:
-            bind=binding()
+            bind=Binding()
             bind.get_doc()
             bind.close_other()
         except:
             pass
 
+def Find_Exceptions(exceptions):
+    for (app_path,title,content_re,operation) in exceptions:
+        app=pywinauto.application.Application()
+        try:
+            try:
+                if app_path:
+                    app.connect(path=app_path)
+                else:
+                    app.connect(title_re=title) 
+                dlg=app.window(title_re=title)
+                crash = dlg.window(title_re=content_re)
+                crash.print_control_identifiers()
+                return (dlg,operation)
+            except (pywinauto.findbestmatch.MatchError,pywinauto.findwindows.ElementNotFoundError):
+                pass
+            except pywinauto.findwindows.ElementAmbiguousError:
+                return (1,'restart')
+        except pywinauto.application.ProcessNotFoundError:
+            return (1,'restart')
+    return (0,0)
+
+'''
 class dialog():
     def __init__(self):
         self.app=pywinauto.application.Application()
@@ -218,30 +184,19 @@ class dialog():
             self.dlg=0
         return self.dlg
 
-    def find_crash(self):
+    def find_acs_exceptions(self,exceptions):
         self.app.connect(path="D:\\AcsModule\\Client\\AcsTools.exe")
-        exceptions=[("提示","应用程序发生了灾难性故障.*"),("异常","File service error.*"),("错误","调用CAD返回了错误信息.*")]
-        for (title,content) in exceptions:
+        for (title,content_re,operation) in exceptions:
             self.dlg =self.app.window(title_re=title)
-            crash=self.dlg.window(title_re=content)
+            crash=self.dlg.window(title_re=content_re)
             try:
                 crash.print_control_identifiers()
-                return 1
+                return operation
             except (pywinauto.findbestmatch.MatchError,pywinauto.findwindows.ElementNotFoundError):
                 pass
         return 0
-
-    def handle_stop(self):
-        self.app.connect(path="D:\\AcsModule\\Client\\AcsTools.exe")
-        self.dlg =self.app.window(title_re="异常")
-        crash=self.dlg.window(title_re="函数[PlotFrameSet]发生了错误.*")
-        try:
-            crash.print_control_identifiers()
-            self.dlg['取消'].click()
-        except (pywinauto.findbestmatch.MatchError,pywinauto.findwindows.ElementNotFoundError):
-            pass
-
-class binding():
+'''
+class Binding():
     def __init__(self):
         self.acad =Autocad(create_if_not_exists=False)
         self.acad.Application.LoadARX(arx_path)
@@ -297,13 +252,16 @@ class binding():
     def load(self):
         self.doc.SendCommand('(load "%s") ' % lsp_path)
 
+    def audit(self):
+        self.doc.SendCommand('(command "audit" "y") ')
+
     @print_func
     def close_other(self):
         self.get_doc()
         lst=[]
         docs=Autocad(create_if_not_exists=True).app.documents
         for i in range(docs.count):
-            if docs[i].Name != self.name:
+            if docs[i].Name != self.name and docs[i].Name[0:7] !='Drawing':
                 lst.append(docs[i].Name)
         for doc in lst:
             docs[doc].close()
@@ -315,11 +273,11 @@ class binding():
         if self.a_xref_path:
             for path in self.a_xref_path:
                 if path and path!="D:\\AcsModule\\Client\\EmptyDwg.dwg": 
-                    fpath=find_file(path,self.path)
+                    fpath=FindFile(path,self.path)
                     if fpath:
                         if os.path.getsize(fpath)>1000000:
                             print("purge file: " +fpath)
-                            fpath=set_write(fpath)
+                            fpath=SetWrite(fpath)
                             self.purgefile(fpath)
     
     @print_func
@@ -358,12 +316,14 @@ class binding():
     @print_func
     def bind_xref_1(self):#快速绑定
         self.load()
+        self.audit()
         self.doc.SendCommand('(bind-fix) ')
         self.get_all_xref()
 
     @print_func
     def bind_xref_2(self):#逐个绑定
         self.load()
+        self.audit()
         self.get_lv1_xref()
         if self.lv1_xref_name:
             self.doc.SendCommand('(command "-xref" "r" "*") ')
@@ -374,13 +334,14 @@ class binding():
     @print_func
     def bind_xref_3(self):#一级深度绑定
         self.load()
+        self.audit()
         self.get_lv1_xref()
         if self.has_xref():
             for path in self.lv1_xref_path:
-                fpath=find_file(path,self.path)
-                fpath=set_write(fpath)
+                fpath=FindFile(path,self.path)
+                fpath=SetWrite(fpath)
                 if fpath:
-                    doc2=open_file(fpath)
+                    doc2=OpenFile(fpath)
                     if doc2:
                         print(doc2)
                         doc2.bind_xref_1()
@@ -396,25 +357,24 @@ class binding():
             if self.has_xref():
                 self.bind_xref_2()
 
-class bind_cleaner():
+class BindCleaner():
     
     def __init__(self):
         self.lst=[]
         self.sorted_list=[]
-        BR=BindingReset()
-        self.not_binded=BR.GetNotBinded()
-        BR.close()
+        self.not_binded=self.GetNotBinded()
         self.f_path=r'C:\Users\virtual\AppData\Local\Temp\AcsTempFile\提资接收区'
-        
+    
+
     def clean(self,keep=10):
-        self.get_folders()
-        self.sorted_list=self.bubble_sort(self.lst)
+        self.GetFolders()
+        self.sorted_list=self.BubbleSort(self.lst)
         for (ctime,f,nd) in self.lst[keep:]:
             if (f,) not in self.not_binded:
                 print(f)
                 os.system('rmdir /s/q "%s"' % nd)
-                
-    def bubble_sort(self,blist):
+
+    def BubbleSort(self,blist):
         count = len(blist)
         for i in range(0, count):
             for j in range(i + 1, count):
@@ -422,7 +382,13 @@ class bind_cleaner():
                     blist[i], blist[j] = blist[j], blist[i]
         return blist
 
-    def get_folders(self):
+    def GetNotBinded(self):
+        with pymssql.connect(host='10.1.246.1', user="readonly", password="capol!@#456",database="CAPOL_Project") as conn:
+            cur=conn.cursor()
+            cur.execute(u"SELECT ID FROM ProductFile where RecordState='A' and IsCurrent is null and BindState<>'Binded'")
+            return set(cur.fetchall())
+
+    def GetFolders(self):
         f_path=self.f_path
         if os.path.isdir(f_path):
             print(f_path)
@@ -437,7 +403,7 @@ class bind_cleaner():
                 self.lst.append((ctime,f,nd))
         return self.lst
 
-def find_file(path,find_path):
+def FindFile(path,find_path):
     if path and find_path:
         (fpath,fname)=os.path.split(path)
         fpath=os.path.join(find_path,fname)
@@ -448,7 +414,7 @@ def find_file(path,find_path):
     else:
         return ""
 
-def set_write(path):
+def SetWrite(path):
     try:
         with open(path,"r+") as fr:
             return path
@@ -457,47 +423,19 @@ def set_write(path):
             os.chmod(path, stat.S_IWRITE)
             return path
         except:
-            print("Can not set_write:"+path)
+            print("Can not SetWrite:"+path)
             return False
 
-class TimeOutError(Exception):
-    def __init__(self, value):
-        self.value = value
-    def __str__(self):
-        return repr(self.value)
-
-def timeout(interval):
-    def wraps(func):
-        def time_out():
-            raise TimeOutError('TimeOut: '+str(interval))
-        def deco(*args, **kwargs):
-            timer = Timer(interval, time_out)
-            timer.start()
-            res = func(*args, **kwargs)
-            timer.cancel()
-            return res
-        return deco
-    return wraps
-
 @print_func
-def open_file(path):
-    new_doc=binding()
+def OpenFile(path):
+    new_doc=Binding()
     try:
         new_doc.doc=new_doc.acad.Application.documents.open(path)
         return new_doc
     except:
-        with open('open_file.bat','w') as f:
+        with open('OpenFile.bat','w') as f:
             f.write('"'+path+'"')
-        run_bat=os.system('open_file.bat')
-        #new_doc.get_doc()
-        #new_doc.doc.SendCommand('CAPOL_OPENDWG ')
-        '''
-        filedia=new_doc.doc.GetVariable("filedia")
-        new_doc.doc.SetVariable("filedia",0)
-        new_doc.doc.SendCommand('_open %s ' % path)
-        #new_doc.doc.SendCommand(path + " ")
-        new_doc.doc.SetVariable("filedia",filedia)
-        '''
+        run_bat=os.system('OpenFile.bat')
         for i in range(60):
             time.sleep(1)
             try:
@@ -509,7 +447,7 @@ def open_file(path):
                 pass
     print("open file time out!")
     return 0
-
+'''
 def get_size(filedir):
     tree = os.walk(filedir, topdown=True)
     dirsize = 0
@@ -522,12 +460,12 @@ def get_size(filedir):
         for file in nodeFiles:
             dirsize = dirsize + os.path.getsize(nodeName+'\\'+file)
     return dirsize
-
+'''
 @print_func
 def log_result(file_name,file_path,result):
     print("#".join(['file name',file_name,'file path',file_path,'result',result]))
     #conn=pymysql.connect(host="10.1.42.24",user="steven",passwd="steven!@#456",db="project_test")
-    conn=pymysql.connect(host="www.minitech.site",user="steven",passwd="steven!@#456",db="project_test")
+    conn=pymysql.connect(host="10.1.42.131",user="steven",passwd="steven!@#456",db="project_test")
     cur=conn.cursor()
     cur.execute(u"INSERT INTO BindHelperRecord(file_name,file_path,result) VALUES(%s,%s,%s)",[file_name,file_path,result])
     conn.commit()

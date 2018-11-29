@@ -6,7 +6,7 @@ import os
 os.environ['NLS_LANG'] = 'SIMPLIFIED CHINESE_CHINA.UTF8'
 
 def run():
-    #method='test'
+    method='test'
     method='capol'
     drop=0
     with acs_project_sync(method=method) as s:
@@ -28,7 +28,7 @@ class sync():
         if oracle:
             self.oracle=cx_Oracle.connect(oracle)
         self.acs_server={}
-        self.acs_server_lst=[('深圳','10.1.246.1'),('广州','10.2.1.114'),('长沙','10.3.1.3'),('上海','10.6.1.240')]
+        self.acs_server_lst=[('深圳','10.1.246.1'),('广州','10.2.1.114'),('长沙','10.3.1.3'),('上海','10.6.1.15'),('海南','10.14.2.10')]
         for (S_NAME,host) in self.acs_server_lst:
             self.acs_server[S_NAME]=pymssql.connect(host=host, user="readonly", password="capol!@#456",database="CAPOL_Project")
 
@@ -107,7 +107,7 @@ class staff_sync(sync):
 
     def get_staff(self):
         cur=self.cip.cursor()
-        cur.execute(u"""SELECT LoginName,JobNo,Username,CompanyName,DeptName,Specialty FROM [dbo].[v_auditor_staff]""")
+        cur.execute(u"""SELECT LoginName,JobNo,Username,CompanyName,DeptName,Specialty,Specialty as SubDept FROM [dbo].[v_auditor_staff]""")
         self.staff=cur.fetchall()
         return self.staff
 
@@ -117,21 +117,21 @@ class staff_sync(sync):
             cur.execute(u"DROP TABLE CAPOL_CIP_STAFF")
         except cx_Oracle.DatabaseError:
             pass
-        cur.execute(u"CREATE TABLE CAPOL_CIP_STAFF(LoginName varchar2(50),JobNo varchar2(16),Username varchar2(50),CompanyName varchar2(50),DeptName varchar2(50),Specialty varchar2(50))")
+        cur.execute(u"CREATE TABLE CAPOL_CIP_STAFF(LoginName varchar2(50),JobNo varchar2(16),Username varchar2(50),CompanyName varchar2(50),DeptName varchar2(50),Specialty varchar2(50),SubDept varchar2(50))")
         cur.execute(u"INSERT INTO CAPOL_CIP_STAFF(LoginName,JobNo,Username) VALUES('同步时间','0000',to_char(sysdate, 'yyyy-mm-dd hh24:mi:ss'))")
         self.oracle.commit()
 
     def check_and_insert(self):
         staff=self.get_staff()
         cur=self.oracle.cursor()
-        for (LoginName,JobNo,Username,CompanyName,DeptName,Specialty) in staff:
-            cur.execute(u"SELECT LoginName,JobNo,Username,CompanyName,DeptName FROM CAPOL_CIP_STAFF WHERE JobNo=:1",[JobNo])
+        for (LoginName,JobNo,Username,CompanyName,DeptName,Specialty,SubDept) in staff:
+            cur.execute(u"SELECT LoginName,JobNo,Username,CompanyName,DeptName,SubDept FROM CAPOL_CIP_STAFF WHERE JobNo=:1",[JobNo])
             res=cur.fetchone()
             if res:
-                if (LoginName,JobNo,Username,CompanyName,DeptName)!=res:
-                    cur.execute(u"UPDATE CAPOL_CIP_STAFF SET LoginName=:1,Username=:2,CompanyName=:3,DeptName=:4 WHERE JobNo=:5",[LoginName,Username,CompanyName,DeptName,JobNo])
+                if (LoginName,JobNo,Username,CompanyName,DeptName,SubDept)!=res:
+                    cur.execute(u"UPDATE CAPOL_CIP_STAFF SET LoginName=:1,Username=:2,CompanyName=:3,DeptName=:4,SubDept=:5 WHERE JobNo=:6",[LoginName,Username,CompanyName,DeptName,SubDept,JobNo])
             else:
-                cur.execute(u" INSERT INTO CAPOL_CIP_STAFF(LoginName,JobNo,Username,CompanyName,DeptName,Specialty) VALUES(:1,:2,:3,:4,:5,:6)",[LoginName,JobNo,Username,CompanyName,DeptName,Specialty])
+                cur.execute(u" INSERT INTO CAPOL_CIP_STAFF(LoginName,JobNo,Username,CompanyName,DeptName,Specialty,SubDept) VALUES(:1,:2,:3,:4,:5,:6,:7)",[LoginName,JobNo,Username,CompanyName,DeptName,Specialty,SubDept])
         cur.execute(u"UPDATE CAPOL_CIP_STAFF SET Username=to_char(sysdate, 'yyyy-mm-dd hh24:mi:ss') where JobNo='0000'")
         self.oracle.commit()
 

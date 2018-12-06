@@ -12,8 +12,9 @@ arx_path=os.path.join(cpath,'iWCapolPurgeIn.arx')
 lsp_path='D:\\\\ACADbindhelper\\\\bindfix-origin.lsp'
 apps={'CAD':'C:\\Program Files\\Autodesk\\AutoCAD 2012 - Simplified Chinese\\acad.exe','ACS':'D:\\AcsModule\\Client\\AcsTools.exe'}
 exceptions=[
-    ('',"AutoCAD Application","联机检查解决方案并关闭该程序",'关闭程序'),
     (apps['ACS'],"提示","存在无法绑定的外参，手动绑定完成后.*","bind"),
+    ('',"AutoCAD Application","联机检查解决方案并关闭该程序",'关闭程序'),
+    (apps['CAD']," AutoCAD 错误报告","软件问题导致.*",'restart'),
     (apps['ACS'],"提示","应用程序发生了灾难性故障.*","restart"),
     (apps['ACS'],"异常","File service error.*","restart"),
     (apps['ACS'],"错误","调用CAD返回了错误信息.*","restart"),
@@ -22,15 +23,12 @@ exceptions=[
     (apps['ACS'],"提示","文件.*在ScanXref方法中出错",'确定'),
     (apps['CAD'],"图形另存为","取消",'取消'),
     (apps['CAD'],"加载/卸载自定义设置","关闭",'关闭'),
-    (apps['CAD'],"AutoCAD 错误报告","软件问题导致.*",'restart'),
     (apps['CAD'],"注释比例.*","此图形包含大量的注释比例.*",'是'),
+    (apps['CAD'],"图案填充 - 大且密集的填充图案","将这些填充图案临时转换为实体图案填充(推荐)",'将这些填充图案临时转换为实体图案填充(推荐)'),
     ]
 
 def main():
-    (dlg,operation)=Find_Exceptions(exceptions)
-    if dlg:
-        dlg.print_control_identifiers()
-    print(operation)
+    pass
 
 def print_func(func):#装饰器，打印func名
     def inner(*args,**kwargs):
@@ -76,23 +74,24 @@ def RunBind():
     bind.close_other()
     bind.xref_purge()
     bind.bind_xref_1()
-    if bind.has_xref():
+    if not bind.has_xref():
+        bind.result='success_1'
+    else:
         bind.remove_unload_xref()
         bind.bind_xref_2()
-    else:
-        bind.result='success_1'
-        return bind
-    if bind.has_xref():
-        bind.bind_xref_3()
-    else:
-        bind.result='success_2'
-        return bind
-    if bind.has_xref():
-        bind.result='failed_0'
-        return bind
-    else:
-        bind.result='success_3'
-        return bind
+        if not bind.has_xref():
+            bind.result='success_2'
+        else:
+            bind.bind_xref_3()
+            if not bind.has_xref():
+                bind.result='success_3'
+            else:
+                bind.bind_xref_4()
+                if not bind.has_xref():
+                    bind.result='success_4'
+                else:
+                    bind.result='failed_0'
+    return bind
 
 def StartACS(method=0):
     while 1:
@@ -169,33 +168,6 @@ def Find_Exceptions(exceptions):
             return (1,'restart')
     return (0,0)
 
-'''
-class dialog():
-    def __init__(self):
-        self.app=pywinauto.application.Application()
-        self.dlg=0
-
-    def find(self):
-        self.app.connect(path="D:\\AcsModule\\Client\\AcsTools.exe")
-        try:
-            self.dlg =self.app[r"提示"]
-            self.dlg[r"存在无法绑定的外参，手动绑定完成后点[确定],放弃绑定点[取消]！"].print_control_identifiers()
-        except (pywinauto.findbestmatch.MatchError):
-            self.dlg=0
-        return self.dlg
-
-    def find_acs_exceptions(self,exceptions):
-        self.app.connect(path="D:\\AcsModule\\Client\\AcsTools.exe")
-        for (title,content_re,operation) in exceptions:
-            self.dlg =self.app.window(title_re=title)
-            crash=self.dlg.window(title_re=content_re)
-            try:
-                crash.print_control_identifiers()
-                return operation
-            except (pywinauto.findbestmatch.MatchError,pywinauto.findwindows.ElementNotFoundError):
-                pass
-        return 0
-'''
 class Binding():
     def __init__(self):
         self.acad =Autocad(create_if_not_exists=False)
@@ -331,8 +303,30 @@ class Binding():
                 self.doc.SendCommand('(command "-xref" "b" "'+name+'") ')
             self.get_all_xref()
 
-    @print_func
     def bind_xref_3(self):#一级深度绑定
+        print('bind_xref_3')
+        self.load()
+        self.audit()
+        self.get_lv1_xref()
+        if self.has_xref():
+            for path in self.lv1_xref_path:
+                fpath=FindFile(path,self.path)
+                fpath=SetWrite(fpath)
+                if fpath:
+                    doc2=OpenFile(fpath)
+                    if doc2:
+                        print(doc2)
+                        doc2.doc.SendCommand('(command "netload" "D:\\AcsModule\\Client\\RemoveProxy.dll") ')
+                        doc2.doc.SendCommand('RemoveProxy ')
+                        doc2.audit()
+                        doc2.doc.close(True)
+            self.doc.SendCommand('(command "-xref" "r" "*") ')       
+            self.bind_xref_1()
+            if self.has_xref():
+                self.bind_xref_2()
+
+    def bind_xref_4(self):#一级深度绑定
+        print('bind_xref_4')
         self.load()
         self.audit()
         self.get_lv1_xref()
@@ -351,6 +345,48 @@ class Binding():
                             print("Can not bind xref: "+doc2.doc.Name)
                             doc2.doc.close(False)
                         else:
+                            doc2.doc.close(True)
+            self.doc.SendCommand('(command "-xref" "r" "*") ')       
+            self.bind_xref_1()
+            if self.has_xref():
+                self.bind_xref_2()
+
+    def bind_xref_5(self):#二级深度绑定
+        print('bind_xref_5')
+        self.load()
+        self.audit()
+        self.get_lv1_xref()
+        if self.has_xref():
+            for path in self.lv1_xref_path:
+                fpath=FindFile(path,self.path)
+                fpath=SetWrite(fpath)
+                if fpath:
+                    doc2=OpenFile(fpath)
+                    if doc2:
+                        print(doc2)
+                        doc2.bind_xref_1()
+                        if doc2.has_xref():
+                            doc2.bind_xref_2()
+                        if doc2.has_xref():
+                            for path in doc2.lv1_xref_path:
+                                fpath=FindFile(path,self.path)
+                                fpath=SetWrite(fpath)
+                                if fpath:
+                                    doc3=OpenFile(fpath)
+                                    if doc3:
+                                        print(doc3)
+                                        doc3.bind_xref_1()
+                                        if doc3.has_xref():
+                                            doc3.bind_xref_2()
+                                        if doc3.has_xref():
+                                            print("Can not bind xref: "+doc3.doc.Name)
+                                        doc3.doc.close(True)
+                            doc2.doc.SendCommand('(command "-xref" "r" "*") ')
+                            doc2.bind_xref_1()
+                            if doc2.has_xref():
+                                doc2.bind_xref_2()
+                                if doc2.has_xref():
+                                    print("Can not bind xref: "+doc2.doc.Name)
                             doc2.doc.close(True)
             self.doc.SendCommand('(command "-xref" "r" "*") ')       
             self.bind_xref_1()
@@ -447,20 +483,7 @@ def OpenFile(path):
                 pass
     print("open file time out!")
     return 0
-'''
-def get_size(filedir):
-    tree = os.walk(filedir, topdown=True)
-    dirsize = 0
-    for i in tree:
-        nodeName = i[0]
-        nodeDirs = i[1]
-        nodeFiles = i[2]
-        if('Zeal' in nodeName):
-            continue
-        for file in nodeFiles:
-            dirsize = dirsize + os.path.getsize(nodeName+'\\'+file)
-    return dirsize
-'''
+
 @print_func
 def log_result(file_name,file_path,result):
     print("#".join(['file name',file_name,'file path',file_path,'result',result]))

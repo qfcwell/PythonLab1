@@ -75,31 +75,12 @@ class InOutSideMark_Check(sync):
         return res
 
     #查询有变化的提资匹配关系，返回子项ID、提出专业、提出楼层、接收专业、接收楼层
-    def FindDatumnRelationChange(self,S_NAME,TimeDiff=120):
-        cur=self.acs_server[S_NAME].cursor()
-        cur.execute(u"""SELECT TR.SubEntryId,TR.TakeoutMajorCode,TRF.TakeoutFloorName,TR.PutinMajorCode,TRF.PutinFloorName
-            FROM CAPOL_PROJECT.DBO.TakeoutRelation TR 
-            JOIN CAPOL_PROJECT.DBO.TakeoutRelationFloor TRF on TR.ID=TRF.TakeoutRelationId
-            WHERE TRF.TakeoutFloorName IS NOT NULL AND TRF.PutinFloorName IS NOT NULL AND DATEDIFF(MINUTE,TRF.LastModifyTime,GETDATE())<%s""",(TimeDiff,))
-        res=cur.fetchall()
-        return res
-    '''
-    def FindDatumnRelationChange(self,S_NAME,TimeDiff=120):
-        if S_NAME in ['shenzhen']:
-            cur=self.acs_server[S_NAME].cursor()
-            cur.execute(u"""SELECT TR.SubEntryId,TR.TakeoutMajorCode,TRF.TakeoutFloorName,TR.PutinMajorCode,TRF.PutinFloorName
-                FROM CAPOL_PROJECT.DBO.TakeoutRelation TR 
-                JOIN CAPOL_PROJECT.DBO.TakeoutRelationFloor TRF on TR.ID=TRF.TakeoutRelationId
-                WHERE TRF.TakeoutFloorName IS NOT NULL AND TRF.PutinFloorName IS NOT NULL AND DATEDIFF(MINUTE,TRF.LastModifyTime,GETDATE())<%s""",(TimeDiff,))
-            res=cur.fetchall()
-            return res
-        else:
-            with DatumnRelationCache(S_NAME) as DRC:
-                DRC.Cache()
-                Change=DRC.Change()
-                DRC.Update()
-            return Change
-    '''    
+    def FindDatumnRelationChange(self,S_NAME):
+        with DatumnRelationCache(S_NAME) as DRC:
+            DRC.Cache()
+            Change=DRC.Change()
+            DRC.Update()
+        return Change
 
     #查询提出文件，输入协同服务器名、子项ID、提出专业、提出楼层，返回相关文件全路径列表
     def FindTakeoutFile(self,S_NAME,SubEntryId,Major,Floor):
@@ -159,7 +140,7 @@ class InOutSideMark_Check(sync):
                 print(sql)
                 cur.execute(sql)
         self.oracle.commit()
-'''
+
 class DatumnRelationCache(sync):
     def __init__(self, S_NAME, *arg, **kw):
         self.acs_server_lst=acs_server_lst
@@ -214,7 +195,7 @@ class DatumnRelationCache(sync):
         cur.execute(sql)
         self.cache_server.commit()
         return True
-'''
+
 
 if __name__=="__main__":
     run()

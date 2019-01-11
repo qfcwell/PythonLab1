@@ -8,14 +8,15 @@ acs_server_lst={'深圳':'10.1.246.1','广州':'10.2.1.114','长沙':'10.3.1.3',
 
 def run():
     method='test'
-    #method='capol'
+    method='capol'
     drop=0
-    with acs_project_sync(method=method) as s:
-        s.run_sync(drop=drop)
+    #with acs_project_sync(method=method) as s:
+     #   s.run_sync(drop=drop)
     with staff_sync(method=method) as s:
-        s.run_sync(drop=drop)
-    with project_role_sync(method=method) as s:
-        s.run_sync()
+        #s.CheckLeave()
+        s.run_sync(drop=0)
+    #with project_role_sync(method=method) as s:
+    #    s.run_sync()
 
 class sync():
     def __init__(self,method='test'): 
@@ -110,7 +111,7 @@ class staff_sync(sync):
 
     def get_staff(self):
         cur=self.cip.cursor()
-        cur.execute(u"""SELECT LoginName,JobNo,Username,CompanyName,DeptName,Specialty,Specialty as SubDept FROM [dbo].[v_auditor_staff]""")
+        cur.execute(u"""SELECT LoginName,JobNo,Username,CompanyName,DeptName,Specialty,Specialty as SubDept FROM [dbo].[v_auditor_staff] WHERE JobNo IS NOT NULL""")
         self.staff=cur.fetchall()
         return self.staff
 
@@ -120,7 +121,7 @@ class staff_sync(sync):
             cur.execute(u"DROP TABLE CAPOL_CIP_STAFF")
         except cx_Oracle.DatabaseError:
             pass
-        cur.execute(u"CREATE TABLE CAPOL_CIP_STAFF(LoginName varchar2(50),JobNo varchar2(16),Username varchar2(50),CompanyName varchar2(50),DeptName varchar2(50),Specialty varchar2(50),SubDept varchar2(50))")
+        cur.execute(u"CREATE TABLE CAPOL_CIP_STAFF(LoginName varchar2(50),JobNo varchar2(16),Username varchar2(50),CompanyName varchar2(50),DeptName varchar2(50),Specialty varchar2(50),SubDept varchar2(50),IS_AVAILABLE NUMBER default 1)")
         cur.execute(u"INSERT INTO CAPOL_CIP_STAFF(LoginName,JobNo,Username) VALUES('同步时间','0000',to_char(sysdate, 'yyyy-mm-dd hh24:mi:ss'))")
         self.oracle.commit()
 
@@ -137,12 +138,38 @@ class staff_sync(sync):
                 cur.execute(u" INSERT INTO CAPOL_CIP_STAFF(LoginName,JobNo,Username,CompanyName,DeptName,Specialty,SubDept) VALUES(:1,:2,:3,:4,:5,:6,:7)",[LoginName,JobNo,Username,CompanyName,DeptName,Specialty,SubDept])
         cur.execute(u"UPDATE CAPOL_CIP_STAFF SET Username=to_char(sysdate, 'yyyy-mm-dd hh24:mi:ss') where JobNo='0000'")
         self.oracle.commit()
+        return 1
+
+    def CheckLeave(self):
+        cur=self.oracle.cursor()
+        cur.execute("SELECT JobNo FROM CAPOL_CIP_STAFF WHERE JobNo is not null")
+        res=cur.fetchall()
+        for (JobNo,) in res:
+            if not self.IsAvailable(JobNo):
+                print(JobNo)
+                cur.execute(u"UPDATE CAPOL_CIP_STAFF SET IS_AVAILABLE=0 WHERE JobNo=:1",[JobNo])
+        self.oracle.commit()
+        return 1
+
+    def IsAvailable(self,JobNo):
+        cur=self.cip.cursor()
+        if JobNo:
+            sql="SELECT fd_no FROM sys_org_element WHERE FD_IS_AVAILABLE=1 AND fd_no='%s' " % JobNo 
+            cur.execute(sql)
+            res=cur.fetchone()
+            if res:
+                return 1
+            else:
+                return 0
+        else:
+            return 0
 
     def run_sync(self,drop=0):
         if drop:
             self.drop_and_create()
         self.get_staff()
         self.check_and_insert()
+        self.CheckLeave()
 
 class project_role_sync(sync):
 

@@ -5,9 +5,53 @@ import os
 
 os.environ['NLS_LANG'] = 'SIMPLIFIED CHINESE_CHINA.UTF8'
 method='capol'
+#method='test'
 
 def run():
-    fill_capol_projectopinions_2018()
+    for i in GetTasks('符润红'):
+        print(i)
+
+def GetTasks(fd_name):
+    with sync(method=method) as s:
+        lst=[]
+        cur=s.cip.cursor()
+        cur.execute("SELECT fd_id from cip.dbo.sys_org_element where fd_name=%s " ,(fd_name))
+        (fd_id,)=cur.fetchone()
+        cur.execute("SELECT f_project_no,f_project_name,f_head_personId from cip_tl.dbo.t_workspace_project")
+        for (f_project_no,f_project_name,f_head_personId) in cur.fetchall():
+            if fd_id in f_head_personId.split(";"):
+                lst.append((f_project_no,f_project_name,f_head_personId))
+    return lst
+
+
+def FlushBlockInsertRecord():
+    with sync(method=method) as s:
+        cur=s.oracle.cursor()
+        cur.execute("SELECT ID,BLOCKNAME from CAPOL_BLOCKINSERTRECORD")
+        res=cur.fetchall()
+        for (ID,BLOCKNAME) in res:
+            #print(filepath)
+            #print(filepath.split("\\")[-1])
+            if BLOCKNAME[-4:]!='.dwg':
+                new_name=BLOCKNAME+'.dwg'
+                cur.execute("UPDATE CAPOL_BLOCKINSERTRECORD set BLOCKNAME=:1 WHERE ID=:2",(new_name,ID))
+            #filename=filepath.split("\\")[-1]
+           # print(filename)
+         #   cur.execute("UPDATE CAPOL_STANDARDCADFILEPATH set FILEPATH=:1 WHERE ID=:2",(filename,ID))
+        s.oracle.commit()
+
+def FlushStandartCADFile():
+    with sync(method=method) as s:
+        cur=s.oracle.cursor()
+        cur.execute("SELECT ID,FILEPATH from CAPOL_STANDARDCADFILEPATH ")
+        res=cur.fetchall()
+        for (ID,filepath) in res:
+            #print(filepath)
+            #print(filepath.split("\\")[-1])
+            filename=filepath.split("\\")[-1]
+            print(filename)
+            cur.execute("UPDATE CAPOL_STANDARDCADFILEPATH set FILEPATH=:1 WHERE ID=:2",(filename,ID))
+        s.oracle.commit()
 
 def fill_capol_projectopinions_2018():
     with sync(method=method) as s:

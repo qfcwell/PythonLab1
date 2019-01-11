@@ -4,17 +4,22 @@ from pyautocad import *
 import pywinauto
 import pymysql,pymssql
 import sysinfo
+import socket
+
 method=1#0为处理绑定失败的文件，1为普通
 restartACS='restartACS.bat'
 restartCAD='restartCAD.bat'
 cpath='D:\\ACADbindhelper'#sys.path[0]
+r_path='C:\\Users\\virtual\\AppData\\Local\\Temp\\AcsTempFile\\提资接收区'
 arx_path=os.path.join(cpath,'iWCapolPurgeIn.arx')
 lsp_path='D:\\\\ACADbindhelper\\\\bindfix-origin.lsp'
+EmptyDwg='D:\\AcsModule\\Client\\EmptyDwg.dwg'
 apps={'CAD':'C:\\Program Files\\Autodesk\\AutoCAD 2012 - Simplified Chinese\\acad.exe','ACS':'D:\\AcsModule\\Client\\AcsTools.exe'}
 exceptions=[
     (apps['ACS'],"提示","存在无法绑定的外参，手动绑定完成后.*","bind"),
     ('',"AutoCAD Application","联机检查解决方案并关闭该程序",'关闭程序'),
-    (apps['CAD']," AutoCAD 错误报告","软件问题导致.*",'restart'),
+    (''," AutoCAD 错误报告","软件问题导致.*",'CloseErrorReportWindow'),
+    (apps['CAD'],"AutoCAD 错误中断","\n\n内部错误:  !purge.cpp@639: eKeyNotFound\n\n",'restart'),
     (apps['ACS'],"提示","应用程序发生了灾难性故障.*","restart"),
     (apps['ACS'],"异常","File service error.*","restart"),
     (apps['ACS'],"错误","调用CAD返回了错误信息.*","restart"),
@@ -25,10 +30,38 @@ exceptions=[
     (apps['CAD'],"加载/卸载自定义设置","关闭",'关闭'),
     (apps['CAD'],"注释比例.*","此图形包含大量的注释比例.*",'是'),
     (apps['CAD'],"图案填充 - 大且密集的填充图案","将这些填充图案临时转换为实体图案填充(推荐)",'将这些填充图案临时转换为实体图案填充(推荐)'),
+    (apps['CAD'],"打开图形 - 文件损坏","图形文件需要修复。",'修复'),
     ]
 
+
 def main():
-    pass
+    hostname=socket.gethostname()
+    print(hostname)
+    
+
+    
+def CloseErrorReportWindow():
+    title1=" AutoCAD 错误报告"
+    title2="错误报告 - 已取消"
+    try:
+        app1=pywinauto.application.Application()
+        app1.connect(title_re=title1)
+        dlg1=app1.window(title_re=title1)
+        dlg1.print_control_identifiers()
+        try:
+            dlg1.Close()
+        except pywinauto.timings.TimeoutError:
+            try:
+                app2=pywinauto.application.Application()
+                app2.connect(title_re=title2)
+                dlg2=app2.window(title_re=title2)
+                dlg2.print_control_identifiers()
+                dlg2.Close()
+                return 1
+            except (pywinauto.findbestmatch.MatchError,pywinauto.findwindows.ElementNotFoundError):
+                return 0
+    except (pywinauto.findbestmatch.MatchError,pywinauto.findwindows.ElementNotFoundError):
+        return 0
 
 def print_func(func):#装饰器，打印func名
     def inner(*args,**kwargs):
@@ -46,27 +79,47 @@ def autorun(mode=0):
         (dlg,operation)=Find_Exceptions(exceptions)
         if operation:
             if operation=='bind':
-                res=RunBind()
-                if res.result!='failed_0':
+                bind=Binding()
+                bind.RunBind(try_times=2)
+                log_result(file_name=bind.name,file_path=bind.path,result=str(bind.result))
+                if bind.result:
                     dlg["确定"].click()
                 else:
-                    log_result(res.name,res.path,res.result)
-                    print("try again:")
-                    res=RunBind()#再试一下
-                    if res.result!='failed_0':
-                        dlg["确定"].click()
-                    else:
-                        dlg["取消"].click()
-                        print("取消")
-                log_result(res.name,res.path,res.result)
+                    dlg["取消"].click()
             elif operation=='restart':
                 StartCAD()
                 StartACS(method)
+            elif operation=='CloseErrorReportWindow':
+                CloseErrorReportWindow()
             else:
                 dlg[operation].click()
         CheckMEM()
         clean=BindCleaner().clean()
-      
+
+def manual(mode=0):
+    #StartCAD()
+    #StartACS(method=method)
+    while 1:
+        time.sleep(1)
+        print(time.strftime('%Y-%m-%d %H:%M:%S',time.localtime()))
+        (dlg,operation)=Find_Exceptions(exceptions)
+        if operation:
+            if operation=='bind':
+                bind=Binding()
+                bind.RunBind(try_times=1)
+                if bind.result:
+                    dlg["确定"].click()
+                else:
+                    dlg["取消"].click()
+            elif operation=='restart':
+                print('NEED RESTART')
+            elif operation=='CloseErrorReportWindow':
+                CloseErrorReportWindow()
+            else:
+                dlg[operation].click()
+        CheckMEM()
+        clean=BindCleaner().clean()
+'''    
 def RunBind():
     bind=Binding()
     bind.get_doc()
@@ -92,6 +145,7 @@ def RunBind():
                 else:
                     bind.result='failed_0'
     return bind
+'''
 
 def StartACS(method=0):
     while 1:
@@ -139,13 +193,13 @@ def StartCAD():
                 t+=1
 
 def CheckMEM():
-    if sysinfo.getSysInfo()['memFree']<600:
-        try:
+    try:
+        if sysinfo.getSysInfo()['memFree']<600:
             bind=Binding()
             bind.get_doc()
             bind.close_other()
-        except:
-            pass
+    except:
+        pass
 
 def Find_Exceptions(exceptions):
     for (app_path,title,content_re,operation) in exceptions:
@@ -172,7 +226,7 @@ class Binding():
     def __init__(self):
         self.acad =Autocad(create_if_not_exists=False)
         self.acad.Application.LoadARX(arx_path)
-        self.result='failed_0'
+        self.result=0
 
     def get_doc(self):
         self.doc=self.acad.doc
@@ -244,7 +298,7 @@ class Binding():
         self.get_all_xref()
         if self.a_xref_path:
             for path in self.a_xref_path:
-                if path and path!="D:\\AcsModule\\Client\\EmptyDwg.dwg": 
+                if path and path!=EmptyDwg: 
                     fpath=FindFile(path,self.path)
                     if fpath:
                         if os.path.getsize(fpath)>1000000:
@@ -277,13 +331,36 @@ class Binding():
         else:
             return False
 
-
     @print_func
     def remove_unload_xref(self):
         for i in range(5):
             if not self.remove_count0():
                 return True
         return False
+
+    @print_func
+    def FixFile(self,path):
+        fpath=FindFile(path,self.path)
+        if fpath==self.path or fpath==EmptyDwg:
+            return 1
+        elif fpath!='':
+            pass
+        else:
+            fpath=SetWrite(fpath)
+            doc2=OpenFile(fpath)
+            if doc2:
+                print(doc2)
+                doc2.doc.SendCommand(r'(command "netload" "D:\\AcsModule\\Client\\RemoveProxy.dll") ')
+                doc2.doc.SendCommand('RemoveProxy ')
+                doc2.audit()
+                doc2.doc.close(True)
+            return 0
+
+    @print_func
+    def FixlAll(self):
+        for path in self.a_xref_path:
+            self.FixFile(path)
+        return 0
         
     @print_func
     def bind_xref_1(self):#快速绑定
@@ -291,6 +368,11 @@ class Binding():
         self.audit()
         self.doc.SendCommand('(bind-fix) ')
         self.get_all_xref()
+        if self.has_xref():
+            self.result=0
+        else:
+            self.result=1
+        return self.result
 
     @print_func
     def bind_xref_2(self):#逐个绑定
@@ -302,28 +384,30 @@ class Binding():
             for name in self.lv1_xref_name:
                 self.doc.SendCommand('(command "-xref" "b" "'+name+'") ')
             self.get_all_xref()
+        if self.has_xref():
+            self.result=0
+        else:
+            self.result=2
+        return self.result 
 
-    def bind_xref_3(self):#一级深度绑定
+    def bind_xref_3(self,method=0):
         print('bind_xref_3')
         self.load()
         self.audit()
         self.get_lv1_xref()
+        method_lst=[self.lv1_xref_path,self.a_xref_path]
         if self.has_xref():
-            for path in self.lv1_xref_path:
-                fpath=FindFile(path,self.path)
-                fpath=SetWrite(fpath)
-                if fpath:
-                    doc2=OpenFile(fpath)
-                    if doc2:
-                        print(doc2)
-                        doc2.doc.SendCommand('(command "netload" "D:\\AcsModule\\Client\\RemoveProxy.dll") ')
-                        doc2.doc.SendCommand('RemoveProxy ')
-                        doc2.audit()
-                        doc2.doc.close(True)
+            for path in method_lst[method]:
+                self.FixFile(path)
             self.doc.SendCommand('(command "-xref" "r" "*") ')       
             self.bind_xref_1()
             if self.has_xref():
                 self.bind_xref_2()
+        if self.has_xref():
+            self.result=0
+        else:
+            self.result=3
+        return self.result 
 
     def bind_xref_4(self):#一级深度绑定
         print('bind_xref_4')
@@ -350,48 +434,30 @@ class Binding():
             self.bind_xref_1()
             if self.has_xref():
                 self.bind_xref_2()
-
-    def bind_xref_5(self):#二级深度绑定
-        print('bind_xref_5')
-        self.load()
-        self.audit()
-        self.get_lv1_xref()
         if self.has_xref():
-            for path in self.lv1_xref_path:
-                fpath=FindFile(path,self.path)
-                fpath=SetWrite(fpath)
-                if fpath:
-                    doc2=OpenFile(fpath)
-                    if doc2:
-                        print(doc2)
-                        doc2.bind_xref_1()
-                        if doc2.has_xref():
-                            doc2.bind_xref_2()
-                        if doc2.has_xref():
-                            for path in doc2.lv1_xref_path:
-                                fpath=FindFile(path,self.path)
-                                fpath=SetWrite(fpath)
-                                if fpath:
-                                    doc3=OpenFile(fpath)
-                                    if doc3:
-                                        print(doc3)
-                                        doc3.bind_xref_1()
-                                        if doc3.has_xref():
-                                            doc3.bind_xref_2()
-                                        if doc3.has_xref():
-                                            print("Can not bind xref: "+doc3.doc.Name)
-                                        doc3.doc.close(True)
-                            doc2.doc.SendCommand('(command "-xref" "r" "*") ')
-                            doc2.bind_xref_1()
-                            if doc2.has_xref():
-                                doc2.bind_xref_2()
-                                if doc2.has_xref():
-                                    print("Can not bind xref: "+doc2.doc.Name)
-                            doc2.doc.close(True)
-            self.doc.SendCommand('(command "-xref" "r" "*") ')       
-            self.bind_xref_1()
-            if self.has_xref():
+            self.result=0
+        else:
+            self.result=4
+        return self.result 
+
+    def RunBind(self,try_times=1):
+        while try_times>0 and self.result==0:
+            try_times = try_times-1
+            self.get_doc()
+            print(self.name)
+            self.close_other()
+            self.xref_purge()
+            if self.result==0:
+                self.bind_xref_1()
+            if self.result==0:
                 self.bind_xref_2()
+            if self.result==0:
+                self.bind_xref_3()
+            if self.result==0:
+                self.bind_xref_3(method=1)
+            if self.result==0:
+                self.bind_xref_4()
+        return self
 
 class BindCleaner():
     
@@ -399,7 +465,7 @@ class BindCleaner():
         self.lst=[]
         self.sorted_list=[]
         self.not_binded=self.GetNotBinded()
-        self.f_path=r'C:\Users\virtual\AppData\Local\Temp\AcsTempFile\提资接收区'
+        self.f_path=r_path
     
 
     def clean(self,keep=10):
@@ -419,10 +485,13 @@ class BindCleaner():
         return blist
 
     def GetNotBinded(self):
-        with pymssql.connect(host='10.1.246.1', user="readonly", password="capol!@#456",database="CAPOL_Project") as conn:
-            cur=conn.cursor()
-            cur.execute(u"SELECT ID FROM ProductFile where RecordState='A' and IsCurrent is null and BindState<>'Binded'")
-            return set(cur.fetchall())
+        try:
+            with pymssql.connect(host='10.1.246.1', user="readonly", password="capol!@#456",database="CAPOL_Project") as conn:
+                cur=conn.cursor()
+                cur.execute(u"SELECT ID FROM ProductFile where RecordState='A' and IsCurrent is null and BindState<>'Binded'")
+                return set(cur.fetchall())
+        except pymssql.OperationalError:
+            return set()
 
     def GetFolders(self):
         f_path=self.f_path
@@ -445,6 +514,8 @@ def FindFile(path,find_path):
         fpath=os.path.join(find_path,fname)
         if os.path.isfile(fpath):
             return fpath
+        elif path[1:2]==':':
+            return path
         else:
             return ""
     else:
@@ -490,10 +561,12 @@ def log_result(file_name,file_path,result):
     #conn=pymysql.connect(host="10.1.42.24",user="steven",passwd="steven!@#456",db="project_test")
     conn=pymysql.connect(host="10.1.42.131",user="steven",passwd="steven!@#456",db="project_test")
     cur=conn.cursor()
-    cur.execute(u"INSERT INTO BindHelperRecord(file_name,file_path,result) VALUES(%s,%s,%s)",[file_name,file_path,result])
+    hostname=socket.gethostname()
+    cur.execute(u"INSERT INTO BindHelperRecord(file_name,file_path,result,hostname) VALUES(%s,%s,%s,%s)",[file_name,file_path,result,hostname])
     conn.commit()
     cur.close()
     conn.close()
+
 
 if __name__=="__main__":
     main()

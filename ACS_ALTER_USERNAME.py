@@ -1,21 +1,10 @@
 ﻿# -*- coding: utf-8 -*-
 import pymssql
 from openpyxl import load_workbook
-
-'''
-def run():
-    with pymssql.connect(host='10.1.246.1', user="sa", password="sasasa",database="CAPOL_Project") as conn:
-        cur=conn.cursor()
-        UserId=GetUserId(cur,'libina')
-        print(UserId)
-        AlterUserName(cur,UserId,'李斌2')
-        AlterLoginName(cur,UserId,'libin2')
-        conn.commit()
-'''
 conns={
     'shenzhen':('10.1.246.1', "sa", "sasasa","CAPOL_Core"),
     'shenzhen_old':('10.1.1.118', "sa", "hygj!@#456","TJA_Core"),
-    'guangzhou':('10.2.1.114', "sa", "hygj!@#456","CAPOL_Core"),
+    'guangzhou':('10.2.1.114', "sa", "hygj!@#456","C APOL_Core"),
     'hainan':('10.14.2.10',"sa", "hygj!@#456","CAPOL_Core"),
     'changsha':('10.3.1.3',"sa", "abcd.1234","CAPOL_Core"),
     'changsha_old':('10.3.1.3',"sa", "abcd.1234","TJA_Core"),
@@ -32,8 +21,21 @@ servers=['shenzhen',
     'shanghai',
     'shanghai_old']
 
-file='D:\\桌面\\平台\\人员名单.xlsx'
+def run():
+    server='shanghai'
+    (host,user,password,database)=conns[server]
+    with pymssql.connect(host=host, user=user, password=password,database=database) as conn:
+        cur=conn.cursor()
+        UserId='USER04JL'
+        #UserId=GetUserId(cur,'fcqi')
+        print(UserId)
+        AlterUserName(cur,UserId,'漆枋晨1')
+        AlterLoginName(cur,UserId,'qifangchen1')
+        conn.commit()
 
+
+file='D:\\桌面\\平台\\人员名单.xlsx'
+'''
 def run():
     for server in servers:
         (host,user,password,database)=conns[server]
@@ -49,7 +51,7 @@ def run():
             print(server+':'+str(i))
             #conn.commit()
 
-
+'''
 def GetUserId(cur,LoginName):
     cur.execute(u"SELECT ID,UserName FROM SysUser where LoginName=%s",(LoginName))
     res=cur.fetchone()

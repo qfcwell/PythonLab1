@@ -1,13 +1,14 @@
 # -*- coding: utf-8 -*- 运行python
 import redis,os
-pool = redis.ConnectionPool(host='10.1.42.24', port=6379)
-pool = redis.ConnectionPool(host='39.108.109.58', port=6379)
+pool = redis.ConnectionPool(host='10.1.42.132', port=6379)
+#pool = redis.ConnectionPool(host='39.108.109.58', port=6379)
+#pool = redis.ConnectionPool(host='10.1.246.1', port=6379)
 conn = redis.Redis(connection_pool=pool)
 
 def main():
-    name='acadbindhelper'
-    lst=get_all_file(not_in=['acadbindhelper_mode1.exe','iWCapolPurgeIn.arx'])
-    upload(conn,name,lst)
+    keys = conn.keys()
+    for k in keys:
+        print(k)
 
 def get_all_file(path='.\\',not_in=[]):
     lst=[]

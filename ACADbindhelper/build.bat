@@ -1,1 +1,0 @@
-pyinstaller -F acadbindhelper_mode1.py

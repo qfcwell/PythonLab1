@@ -4,7 +4,7 @@ from openpyxl import load_workbook
 conns={
     'shenzhen':('10.1.246.1', "sa", "sasasa","CAPOL_Core"),
     'shenzhen_old':('10.1.1.118', "sa", "hygj!@#456","TJA_Core"),
-    'guangzhou':('10.2.1.114', "sa", "hygj!@#456","C APOL_Core"),
+    'guangzhou':('10.2.1.114', "sa", "hygj!@#456","CAPOL_Core"),
     'hainan':('10.14.2.10',"sa", "hygj!@#456","CAPOL_Core"),
     'changsha':('10.3.1.3',"sa", "abcd.1234","CAPOL_Core"),
     'changsha_old':('10.3.1.3',"sa", "abcd.1234","TJA_Core"),
@@ -22,16 +22,20 @@ servers=['shenzhen',
     'shanghai_old']
 
 def run():
-    server='shanghai'
-    (host,user,password,database)=conns[server]
-    with pymssql.connect(host=host, user=user, password=password,database=database) as conn:
-        cur=conn.cursor()
-        UserId='USER04JL'
-        #UserId=GetUserId(cur,'fcqi')
-        print(UserId)
-        AlterUserName(cur,UserId,'漆枋晨1')
-        AlterLoginName(cur,UserId,'qifangchen1')
-        conn.commit()
+    servers=['changsha']
+    for server in servers:
+        (host,user,password,database)=conns[server]
+        with pymssql.connect(host=host, user=user, password=password,database=database) as conn:
+            cur=conn.cursor()
+            UserId='SUER04W0'
+            #UserId=GetUserId(cur,'liangpeize')
+            if UserId:
+                print(UserId)
+                AlterUserName(cur,UserId,'刘轲1')
+                AlterLoginName(cur,UserId,'liuke1')
+                conn.commit()
+            else:
+                print('无此用户')
 
 
 file='D:\\桌面\\平台\\人员名单.xlsx'

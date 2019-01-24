@@ -8,24 +8,15 @@ acs_server_lst={'shenzhen':'10.1.246.1','guangzhou':'10.2.1.114','changsha':'10.
 
 def run():
     #init_cache()
-    with InOutSideMark_Check(method='capol') as check:
+    conn_str='steven/qfc23834358@superset1.minitech.site:1521/xe'#test
+    conn_str='ccd/hygj1234@10.1.1.213:1521/orcl'#capol
+    with InOutSideMark_Check(oracle_conn=conn_str) as check:
         check.RunCheck()
 
-def init_cache():
-    for S_NAME in acs_server_lst:
-        with DatumnRelationCache(S_NAME) as DRC:
-            DRC.Cache()
-            DRC.Update()
-
 class sync():
-    def __init__(self,method='test'): 
+    def __init__(self,oracle_conn): 
         self.cip=pymssql.connect(host='10.1.1.117', user="cip_ro", password="hygj!@#4567",database="cip")
-        self.oracle_ccd=cx_Oracle.connect('ccd/hygj1234@10.1.1.213:1521/orcl')
-        self.oracle_test=cx_Oracle.connect('steven/qfc23834358@10.1.42.131:1521/xe')
-        if method=='test':
-            self.oracle=self.oracle_test
-        else:
-            self.oracle=self.oracle_ccd
+        self.oracle=cx_Oracle.connect(oracle_conn)
         self.acs_server={}
         self.acs_server_lst=acs_server_lst
         for S_NAME in acs_server_lst:
@@ -40,8 +31,7 @@ class sync():
     def close(self):
         self.a=1
         self.cip.close()
-        self.oracle_ccd.close()
-        self.oracle_test.close()
+        self.oracle.close()
         for S_NAME in self.acs_server:
             self.acs_server[S_NAME].close()
 
@@ -83,23 +73,6 @@ class InOutSideMark_Check(sync):
             WHERE TRF.TakeoutFloorName IS NOT NULL AND TRF.PutinFloorName IS NOT NULL AND DATEDIFF(MINUTE,TRF.LastModifyTime,GETDATE())<%s""",(TimeDiff,))
         res=cur.fetchall()
         return res
-    '''
-    def FindDatumnRelationChange(self,S_NAME,TimeDiff=120):
-        if S_NAME in ['shenzhen']:
-            cur=self.acs_server[S_NAME].cursor()
-            cur.execute(u"""SELECT TR.SubEntryId,TR.TakeoutMajorCode,TRF.TakeoutFloorName,TR.PutinMajorCode,TRF.PutinFloorName
-                FROM CAPOL_PROJECT.DBO.TakeoutRelation TR 
-                JOIN CAPOL_PROJECT.DBO.TakeoutRelationFloor TRF on TR.ID=TRF.TakeoutRelationId
-                WHERE TRF.TakeoutFloorName IS NOT NULL AND TRF.PutinFloorName IS NOT NULL AND DATEDIFF(MINUTE,TRF.LastModifyTime,GETDATE())<%s""",(TimeDiff,))
-            res=cur.fetchall()
-            return res
-        else:
-            with DatumnRelationCache(S_NAME) as DRC:
-                DRC.Cache()
-                Change=DRC.Change()
-                DRC.Update()
-            return Change
-    '''    
 
     #查询提出文件，输入协同服务器名、子项ID、提出专业、提出楼层，返回相关文件全路径列表
     def FindTakeoutFile(self,S_NAME,SubEntryId,Major,Floor):
@@ -159,62 +132,7 @@ class InOutSideMark_Check(sync):
                 print(sql)
                 cur.execute(sql)
         self.oracle.commit()
-'''
-class DatumnRelationCache(sync):
-    def __init__(self, S_NAME, *arg, **kw):
-        self.acs_server_lst=acs_server_lst
-        self.S_NAME=S_NAME
-        self.acs=pymssql.connect(host=self.acs_server_lst[self.S_NAME], user="readonly", password="capol!@#456",database="CAPOL_Project")
-        self.cache_server=pymssql.connect(host='10.1.42.131', user="sa", password="qfc23834358Q",database="CAPOL_TRF_CACHE")
 
-    def close(self):
-        self.acs.close()
-        self.cache_server.close()
-
-    def Change(self):
-        cur=self.cache_server.cursor()
-        sql="""SELECT SubEntryId,TakeoutMajorCode,TakeoutFloorName,PutinMajorCode,PutinFloorName 
-            FROM CAPOL_TRF_CACHE_%(S_NAME)s
-            except 
-            SELECT SubEntryId,TakeoutMajorCode,TakeoutFloorName,PutinMajorCode,PutinFloorName
-            FROM CAPOL_TRF_PRE_%(S_NAME)s""" % {'S_NAME':self.S_NAME}
-        print(sql)
-        cur.execute(sql)
-        res=cur.fetchall()
-        return res
-
-    def Update(self):
-        print('Update:'+self.S_NAME)
-        cur=self.cache_server.cursor()
-        try:
-            cur.execute(u"""DROP TABLE CAPOL_TRF_PRE_%(S_NAME)s""" % {'S_NAME':self.S_NAME})
-        except pymssql.OperationalError:
-            pass
-        sql="""SELECT SubEntryId,TakeoutMajorCode,TakeoutFloorName,PutinMajorCode,PutinFloorName 
-            INTO CAPOL_TRF_PRE_%(S_NAME)s
-            FROM CAPOL_TRF_CACHE_%(S_NAME)s""" % {'S_NAME':self.S_NAME}
-        #print(sql)
-        cur.execute(sql)
-        self.cache_server.commit()
-        return True
-
-    def Cache(self):
-        print('Cache:'+self.S_NAME)
-        cur=self.cache_server.cursor()
-        try:
-            cur.execute(u"""DROP TABLE CAPOL_TRF_CACHE_%(S_NAME)s""" % {'S_NAME':self.S_NAME})
-        except pymssql.OperationalError:
-            pass 
-        sql="""SELECT TR.SubEntryId,TR.TakeoutMajorCode,TRF.TakeoutFloorName,TR.PutinMajorCode,TRF.PutinFloorName 
-            INTO CAPOL_TRF_CACHE_%(S_NAME)s
-            FROM [%(link_server)s].CAPOL_PROJECT.DBO.TakeoutRelation TR 
-            JOIN [%(link_server)s].CAPOL_PROJECT.DBO.TakeoutRelationFloor TRF on TR.ID=TRF.TakeoutRelationId
-            WHERE TRF.TakeoutFloorName IS NOT NULL AND TRF.PutinFloorName IS NOT NULL""" % {'S_NAME':self.S_NAME,'link_server':acs_server_lst[self.S_NAME]}
-        #print(sql)
-        cur.execute(sql)
-        self.cache_server.commit()
-        return True
-'''
 
 if __name__=="__main__":
     run()

@@ -7,26 +7,20 @@ os.environ['NLS_LANG'] = 'SIMPLIFIED CHINESE_CHINA.UTF8'
 acs_server_lst={'深圳':'10.1.246.1','广州':'10.2.1.114','长沙':'10.3.1.3','上海':'10.6.1.15','海南':'10.14.2.10'}
 
 def run():
-    method='test'
-    method='capol'
     drop=0
-    #with acs_project_sync(method=method) as s:
-     #   s.run_sync(drop=drop)
-    with staff_sync(method=method) as s:
-        #s.CheckLeave()
+    conn_str='steven/qfc23834358@superset1.minitech.site:1521/xe'#test
+    conn_str='ccd/hygj1234@10.1.1.213:1521/orcl'#capol
+    with acs_project_sync(oracle_conn=conn_str) as s:
+        s.run_sync(drop=drop)
+    with staff_sync(oracle_conn=conn_str) as s:
         s.run_sync(drop=0)
-    #with project_role_sync(method=method) as s:
-    #    s.run_sync()
+    with project_role_sync(oracle_conn=conn_str) as s:
+        s.run_sync()
 
 class sync():
-    def __init__(self,method='test'): 
+    def __init__(self,oracle_conn): 
         self.cip=pymssql.connect(host='10.1.1.117', user="cip_ro", password="hygj!@#4567",database="cip")
-        self.oracle_ccd=cx_Oracle.connect('ccd/hygj1234@10.1.1.213:1521/orcl')
-        self.oracle_test=cx_Oracle.connect('steven/qfc23834358@10.1.42.131:1521/xe')
-        if method=='test':
-            self.oracle=self.oracle_test
-        else:
-            self.oracle=self.oracle_ccd
+        self.oracle=cx_Oracle.connect(oracle_conn)
         self.acs_server={}
         self.acs_server_lst=acs_server_lst
         for S_NAME in acs_server_lst:
@@ -41,8 +35,7 @@ class sync():
     def close(self):
         self.a=1
         self.cip.close()
-        self.oracle_ccd.close()
-        self.oracle_test.close()
+        self.oracle.close()
         for S_NAME in self.acs_server:
             self.acs_server[S_NAME].close()
 

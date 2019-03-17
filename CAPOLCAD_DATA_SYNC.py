@@ -107,7 +107,7 @@ class staff_sync(sync):
         cur.execute(u"""SELECT LoginName,JobNo,Username,CompanyName,DeptName,Specialty,Specialty as SubDept FROM [dbo].[v_auditor_staff] WHERE JobNo IS NOT NULL""")
         self.staff=cur.fetchall()
         return self.staff
-
+    '''
     def drop_and_create(self):
         cur=self.oracle.cursor()
         try:
@@ -117,7 +117,7 @@ class staff_sync(sync):
         cur.execute(u"CREATE TABLE CAPOL_CIP_STAFF(LoginName varchar2(50),JobNo varchar2(16),Username varchar2(50),CompanyName varchar2(50),DeptName varchar2(50),Specialty varchar2(50),SubDept varchar2(50),IS_AVAILABLE NUMBER default 1)")
         cur.execute(u"INSERT INTO CAPOL_CIP_STAFF(LoginName,JobNo,Username) VALUES('同步时间','0000',to_char(sysdate, 'yyyy-mm-dd hh24:mi:ss'))")
         self.oracle.commit()
-
+    '''
     def check_and_insert(self):
         staff=self.get_staff()
         cur=self.oracle.cursor()
@@ -158,8 +158,8 @@ class staff_sync(sync):
             return 0
 
     def run_sync(self,drop=0):
-        if drop:
-            self.drop_and_create()
+        #if drop:
+        #    self.drop_and_create()
         self.get_staff()
         self.check_and_insert()
         self.CheckLeave()

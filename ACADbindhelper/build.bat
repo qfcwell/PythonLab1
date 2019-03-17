@@ -1,0 +1,1 @@
+pyinstaller -F acadbindhelper_run.py

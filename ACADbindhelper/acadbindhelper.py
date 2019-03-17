@@ -6,14 +6,18 @@ import pymysql,pymssql
 import sysinfo
 import socket
 
+arx_path='D:\\ACADbindhelper\\iWCapolPurgeIn.arx'
+lsp_path='D:\\\\ACADbindhelper\\\\bindfix-origin.lsp'
+EmptyDwg='D:\\ACADbindhelper\\EmptyDwg.dwg'
+RemoveProxy_dll='D:\\ACADbindhelper\\RemoveProxy.dll'
+
+
 def main():
-    h=helper(mysql='10.1.42.103')
-    #h.GetExceptions_list()
-    '''
-    with pymysql.connect(host='superset1.minitech.site',user='steven',passwd="steven!@#456",db="project_test") as cur:               
-        for (appname,title,content,operation) in helper.Exceptions_list:
-            cur.execute(u"INSERT INTO `BindHelperExceptions`(AppName,title,content,operation) VALUES(%s,%s,%s,%s)",[appname,title,content,operation])
-    '''
+    h=helper(mysql='superset1.minitech.site')
+    for (app_path,title_re,content_re,operation,treatment) in h.Exceptions:
+        ex=Exception(title_re=title_re,operation=operation,content_re=content_re,app_path=app_path,treatment=treatment) 
+    print(ex.treatment)
+
 def print_func(func):#装饰器，打印func名
     def inner(*args,**kwargs):
         print(func.__name__+':')
@@ -21,8 +25,51 @@ def print_func(func):#装饰器，打印func名
         return func(*args,**kwargs)
     return inner  
 
+class Exception():
+    def __init__(self,title_re,operation,content_re='',app_path='',treatment=''):
+        self.app=pywinauto.application.Application()
+        self.app_path=app_path
+        self.title_re=title_re
+        self.content_re=content_re
+        self.operation=operation
+        self.click_dlg=''
+        self.result=0
+        self.treatment=treatment
+        try:
+            if self.app_path:
+                self.app.connect(path=self.app_path)
+            else:
+                self.app.connect(title_re=self.title_re) 
+            self.window=self.app.window(title_re=self.title_re)
+            if self.content_re:
+                crash = self.window.window(title_re=self.content_re)
+                crash.print_control_identifiers()
+            else:
+                self.window.print_control_identifiers()
+            if self.treatment in ['bind','CloseErrorReportWindow']:
+                self.result=1
+            elif self.treatment=='click':
+                self.click_dlg=self.window[self.operation]
+                self.click_dlg.print_control_identifiers()
+                self.result=1
+        except (pywinauto.findbestmatch.MatchError,pywinauto.findwindows.ElementNotFoundError):
+            self.result=0
+            self.treatment='pass'
+        except (pywinauto.findwindows.ElementAmbiguousError,pywinauto.application.ProcessNotFoundError):
+            self.result=1
+            self.treatment='restart'
+
+    def click(self):
+        if self.click_dlg and self.treatment=='click':
+            print('click')
+            self.click_dlg.click()
+            return 1
+        else:
+            return 0   
+
 class helper():
-    RestartACS_dict={'shenzhen':'restartACS_SZ.bat','guangzhou':'restartACS_GZ.bat','shanghai':'restartACS_SH.bat','changsha':'restartACS_CS.bat','hainan':'restartACS_HN.bat'}
+    restartACS='D:\\restartACS.bat'
+    #RestartACS_dict={'shenzhen':'restartACS_SZ.bat','guangzhou':'restartACS_GZ.bat','shanghai':'restartACS_SH.bat','changsha':'restartACS_CS.bat','hainan':'restartACS_HN.bat'}
     ACSPath_dict={'shenzhen':'D:\\AcsModule\\Client','guangzhou':'D:\\AcsModule\\Client_GZ','shanghai':'D:\\AcsModule\\Client_SH','changsha':'D:\\AcsModule\\Client_CS','hainan':'D:\\AcsModule\\Client_HN'}
     Server_dict={
         'shenzhen':('10.1.246.1', "readonly", "capol!@#456","CAPOL_Project"),
@@ -32,7 +79,7 @@ class helper():
         'shanghai':('10.6.1.15',"readonly", "capol!@#456","CAPOL_Project"),
         }
     
-    def __init__(self,mysql='',server='',method=0):
+    def __init__(self,mysql='',server='shenzhen',method=0):
         self.cpath='D:\\ACADbindhelper'#sys.path[0]
         self.arx_path='D:\\ACADbindhelper\\iWCapolPurgeIn.arx'
         self.lsp_path='D:\\\\ACADbindhelper\\\\bindfix-origin.lsp'
@@ -41,6 +88,8 @@ class helper():
         self.Hostname=socket.gethostname()
         self.Server=server
         self.Method=method
+        if os.path.isfile(self.restartACS):
+            os.remove(self.restartACS)
         if mysql:
             self.host=mysql
             self.user="steven"
@@ -48,11 +97,11 @@ class helper():
             self.db="project_test"
             self.GetMethod()
         if self.Server:
-            self.restartACS=self.RestartACS_dict[self.Server]
+            self.Create_RestartACS()
             self.restartCAD='restartCAD.bat'
             self.acs_path=self.ACSPath_dict[self.Server]
             self.EmptyDwg=os.path.join(self.acs_path,'EmptyDwg.dwg')
-            self.APP_dict={'CAD':'C:\\Program Files\\Autodesk\\AutoCAD 2012 - Simplified Chinese\\acad.exe','ACS':os.path.join(self.acs_path,'AcsTools.exe'),'NOAPP':''}
+            self.APP_dict={'CAD':'C:\\Program Files\\Autodesk\\AutoCAD 2012 - Simplified Chinese\\acad.exe','ACS':self.acs_exe,'NOAPP':''}
             self.GetExceptions_list()
         else:
             print("No Server Set!")
@@ -76,18 +125,26 @@ class helper():
             print("Getting Exceptions")
             #try:
             with pymysql.connect(host=self.host,user='steven',passwd="steven!@#456",db="project_test") as cur:
-                cur.execute("SELECT AppName,title,content,operation FROM BindHelperExceptions")
+                cur.execute("SELECT AppName,title,content,operation,treatment FROM BindHelperExceptions")
                 res=cur.fetchall()
             if res:
-                for (AppName,title,content,operation) in res:
-                    self.Exceptions.append((self.APP_dict[AppName],title,content,operation))
+                for (AppName,title,content,operation,treatment) in res:
+                    self.Exceptions.append((self.APP_dict[AppName],title,content,operation,treatment))
                 break
         return self.Exceptions
             #except:
              #   pass
+             
+    def Create_RestartACS(self):
+        with open(self.restartACS,'w') as txt:
+            if self.Method in [0,1]:
+                self.acs_exe=os.path.join(self.ACSPath_dict[self.Server],'AcsTools.exe')
+                txt.write("""tskill acstools\ntskill AcsTakeoutFileTool\nstart "acstools" "%s"\n""" % self.acs_exe)
+            elif self.Method==2:
+                self.acs_exe=os.path.join(self.ACSPath_dict[self.Server],'AcsTakeoutFileTool.exe')
+                txt.write("""tskill acstools\ntskill AcsTakeoutFileTool\nstart "AcsTakeoutFileTool" "%s"\n""" % self.acs_exe)
 
-
-    def StartACS(self):
+    def StartACS_bat(self):
         while 1:
             print(self.restartACS)
             os.system(self.restartACS)
@@ -95,21 +152,55 @@ class helper():
             dlg=self.Check_ACS()
             if dlg:
                 break
-        if self.Method==1:
-            dlg['开始绑定'].click()
-        else:
+        if self.Method==0:
             dlg['绑定失败跳过'].click()
             dlg['优先处理绑定失败的文件'].click()
             dlg['开始绑定'].click()
+        elif self.Method==1:
+            dlg['开始绑定'].click()
+        elif self.Method==2:
+            dlg['开始'].click()
+
+    def StartACS(self):
+        while 1:
+            print(self.restartACS)
+            os.system('tskill acstools')
+            os.system('tskill AcsTakeoutFileTool')
+            os.system('start "acstools" "%s"' % self.acs_exe)
+            time.sleep(10)
+            dlg=self.Check_ACS()
+            if dlg:
+                break
+        if self.Method==0:
+            dlg['绑定失败跳过'].click()
+            dlg['优先处理绑定失败的文件'].click()
+            dlg['开始绑定'].click()
+        elif self.Method==1:
+            dlg['开始绑定'].click()
+        elif self.Method==2:
+            dlg['开始'].click()
 
     def Check_ACS(self):
         app=pywinauto.application.Application()
-        app.connect(path=self.APP_dict['ACS'])
-        dlg=app.window(title_re='工具管理器')
         try:
-            dlg['开始绑定'].print_control_identifiers()
-            return dlg
-        except pywinauto.findbestmatch.MatchError:
+            app.connect(path=self.acs_exe)
+        except pywinauto.application.ProcessNotFoundError:
+            return 0
+        if self.Method in [0,1]:
+            dlg=app.window(title_re='工具管理器')
+            try:
+                dlg['开始绑定'].print_control_identifiers()
+                return dlg
+            except pywinauto.findbestmatch.MatchError:
+                return 0
+        elif self.Method in [2]:
+            dlg=app.window(title_re='MainForm')
+            try:
+                dlg['开始'].print_control_identifiers()
+                return dlg
+            except pywinauto.findbestmatch.MatchError:
+                return 0
+        else:
             return 0
 
     def StartCAD(self): 
@@ -132,26 +223,6 @@ class helper():
                     time.sleep(2)
                     t+=1
 
-    def Find_Exceptions(self):
-        for (app_path,title,content_re,operation) in self.Exceptions:
-            app=pywinauto.application.Application()
-            try:
-                try:
-                    if app_path:
-                        app.connect(path=app_path)
-                    else:
-                        app.connect(title_re=title) 
-                    dlg=app.window(title_re=title)
-                    crash = dlg.window(title_re=content_re)
-                    crash.print_control_identifiers()
-                    return (dlg,operation)
-                except (pywinauto.findbestmatch.MatchError,pywinauto.findwindows.ElementNotFoundError):
-                    pass
-                except pywinauto.findwindows.ElementAmbiguousError:
-                    return (1,'restart')
-            except pywinauto.application.ProcessNotFoundError:
-                return (1,'restart')
-        return (0,0)
 
     def AutoRun(self,Auto=True):
         if Auto:
@@ -160,33 +231,36 @@ class helper():
         while 1:
             time.sleep(1)
             print(time.strftime('%Y-%m-%d %H:%M:%S',time.localtime()))
-            (dlg,operation)=self.Find_Exceptions()
-            if operation:
-                print(operation)
-                if operation=='bind':
+            for (app_path,title_re,content_re,operation,treatment) in self.Exceptions:
+                ex=Exception(title_re=title_re,operation=operation,content_re=content_re,app_path=app_path,treatment=treatment)
+                if ex.treatment=='bind':
                     bind=Binding()
                     bind.RunBind(try_times=2)
                     self.log_result(file_name=bind.name,file_path=bind.path,result=str(bind.result))
                     if bind.result:
-                        dlg["确定"].click()
+                        ex.window["确定"].click()
                     else:
-                        dlg["取消"].click()
-                elif operation=='restart':
+                        ex.window["取消"].click()
+                elif ex.treatment=='restart':
                     if Auto:
                         self.StartCAD()
                         self.StartACS()
                     else:
                         print('NEED RESTART')
-                elif operation=='CloseErrorReportWindow':
+                elif ex.treatment=='CloseErrorReportWindow':
                     CloseErrorReportWindow()
                 else:
-                    dlg[operation].click()
+                    ex.click()
             CheckMEM()
             bc=BindCleaner(f_path=self.r_path,not_binded=self.GetNotBinded())
             bc.clean() 
 
     def log_result(self,file_name,file_path,result):
+        with open("d:\\result_log.txt","a") as txt:
+            txt.write("#".join(['file name',file_name,'file path',file_path,'result',result]))
+            txt.write("\n")
         try:
+            
             with pymysql.connect(host=self.host,user=self.user,passwd=self.passwd,db=self.db) as cur:
                 hostname=socket.gethostname()
                 cur.execute(u"INSERT INTO BindHelperRecord(file_name,file_path,result,hostname) VALUES(%s,%s,%s,%s)",[file_name,file_path,result,hostname])
@@ -325,16 +399,15 @@ class Binding():
     @print_func
     def FixFile(self,path):
         fpath=FindFile(path,self.path)
-        if fpath==self.path or fpath==EmptyDwg:
+        print(fpath)
+        if fpath==self.path or fpath==EmptyDwg or fpath=='':
             return 1
-        elif fpath!='':
-            pass
         else:
             fpath=SetWrite(fpath)
             doc2=OpenFile(fpath)
             if doc2:
                 print(doc2)
-                doc2.doc.SendCommand(r'(command "netload" "'+os.path.join(acs_path,'RemoveProxy.dll')+'") ')
+                doc2.doc.SendCommand('(command "netload" "%s") ' % RemoveProxy_dll)
                 doc2.doc.SendCommand('RemoveProxy ')
                 doc2.audit()
                 doc2.doc.close(True)
@@ -507,26 +580,33 @@ def SetWrite(path):
             print("Can not SetWrite:"+path)
             return False
 
-@print_func
-def OpenFile(path):
-    new_doc=Binding()
-    try:
-        new_doc.doc=new_doc.acad.Application.documents.open(path)
-        return new_doc
-    except:
-        with open('OpenFile.bat','w') as f:
-            f.write('"'+path+'"')
-        run_bat=os.system('OpenFile.bat')
-        for i in range(60):
-            time.sleep(1)
-            try:
-                new_doc.get_doc()
-                print(os.path.join(new_doc.path,new_doc.name))
-                if path.upper() == os.path.join(new_doc.path,new_doc.name).upper():
-                    return new_doc
-            except:
-                pass
-    print("open file time out!")
+def OpenFile(path,open_bat='D:\\OpenFile.bat'):
+    if os.path.isfile(path) and path[-4:]=='.dwg':
+        print("try open :"+path)
+        new_doc=Binding()
+        try:
+            new_doc.doc=new_doc.acad.Application.documents.open(path)
+            return new_doc
+        except:
+            with open(open_bat,'w') as f:
+                f.write('"'+path+'"')
+            run_bat=os.system(open_bat)
+            for i in range(60):
+                time.sleep(1)
+                try:
+                    new_doc.get_doc()
+                    print(os.path.join(new_doc.path,new_doc.name))
+                    if path.upper() == os.path.join(new_doc.path,new_doc.name).upper():
+                        if os.path.isfile(open_bat):
+                            os.remove(open_bat)
+                        return new_doc
+                except:
+                    pass
+        print("open file time out!")
+    else:
+        print("path is not a dwg file!")
+    if os.path.isfile(open_bat):
+        os.remove(open_bat)
     return 0
 
 def CloseErrorReportWindow():

@@ -4,7 +4,7 @@ import warnings
 
 if __name__=="__main__":
     warnings.simplefilter("once")
-    helper=acadbindhelper.helper(mysql='10.1.42.103')
+    helper=acadbindhelper.helper(mysql='superset1.minitech.site')
     #helper.AutoRun(Auto=True)
     while 1:
         try:
